@@ -1,0 +1,25 @@
+Started: 2026-11-13T15:56:37.3140899+08:00
+Scope: assets/brand/ai only; no package installation; no procedural artwork.
+References: both user-supplied images were visually inspected via view_image.
+Canvas choice: opaque full-bleed square; user may round corners later; no transparency claimed.
+GET /v1/models Invoke-RestMethod attempt 1
+GET HTTP 200
+Catalog evidence: {   "requested_model": "gpt-image-2.6-sunburst-special",   "model_found": true,   "model_count": 8,   "matching_entries": [     {       "id": "gpt-image-2.6-sunburst-special",       "object": "model",       "created": 1626777600,       "owned_by": "openai",       "supported_endpoint_types": [         "image-generation",         "openai"       ]     }   ],   "checked_at": "2026-11-13T15:56:38.0105564+08:00",   "endpoint": "https://omyai.vip/v1/models" }
+Prompt file: ai-icon-prompt.txt; characters=3064
+Request: POST https://omyai.vip/v1/images/generations; model=gpt-image-2.6-sunburst-special; size=1024x1024; n=1. No reference image bytes uploaded; prompt incorporates visually inspected references.
+POST Invoke-RestMethod attempt 1
+POST failure: 响应状态代码未指示成功: 502 (Bad Gateway)。
+POST HTTP 502
+Response error: 
+{
+  "error": {
+    "message": "\u751F\u6210\u670D\u52A1\u62D2\u7EDD\u4E86\u8BF7\u6C42\uFF0C\u8BF7\u68C0\u67E5\u63D0\u793A\u8BCD\u3001\u53C2\u8003\u56FE\u6216\u6A21\u578B\u53C2\u6570\u540E\u91CD\u8BD5\uFF08\u79EF\u5206\u5DF2\u9000\u8FD8\uFF09",
+    "type": "upstream_error",
+    "param": "",
+    "code": null
+  }
+}
+Generation attempt 2: simplified prompt; same model; prior attempt HTTP 502 upstream_error; gateway claimed credits refunded. Started 2026-11-13T15:59:28.7153138+08:00
+Prompt: ai-icon-prompt.txt; characters=1394; previous prompt retained as ai-icon-prompt-attempt-1.txt.
+Request: POST /v1/images/generations; model=gpt-image-2.6-sunburst-special; size=1024x1024; n=1.
+POST attempt 2 Invoke-RestMethod TLS try 1

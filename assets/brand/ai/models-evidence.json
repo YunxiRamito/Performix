@@ -1,0 +1,19 @@
+{
+  "requested_model": "gpt-image-2.6-sunburst-special",
+  "model_found": true,
+  "model_count": 8,
+  "matching_entries": [
+    {
+      "id": "gpt-image-2.6-sunburst-special",
+      "object": "model",
+      "created": 1626777600,
+      "owned_by": "openai",
+      "supported_endpoint_types": [
+        "image-generation",
+        "openai"
+      ]
+    }
+  ],
+  "checked_at": "2026-11-13T15:56:38.0105564+08:00",
+  "endpoint": "https://omyai.vip/v1/models"
+}

@@ -1,5 +1,8 @@
 # Performix
 
+**License: GPL-3.0** —— 整仓以 [GNU GPL v3.0](LICENSE) 发布（含 GPL 派生代码，见
+[docs/LICENSING.md](docs/LICENSING.md) §2；上游 PreySense 的 MIT 声明保留）。
+
 跨品牌笔记本性能调度替换工具（长期目标）。
 
 把厂商那套「装一堆后台服务 + 一个又大又慢的控制中心」的做法替换掉：直接用厂商自己在用的
@@ -34,7 +37,8 @@ Performix/
 ├ scripts/                     # 构建 / 启动 / 回滚 / 恢复脚本
 ├ docs/                        # 设计与逆向记录
 ├ assets/branding/             # 占位品牌素材（原创图标待补，见「待办」）
-├ third_party/                 # 第三方许可原文
+├ LICENSES/                    # 上游许可原文（PreySense MIT / GHelper GPL-3.0）
+├ third_party/                 # 运行时依赖的许可原文
 ├ THIRD-PARTY-NOTICES.md
 └ .github/workflows/build.yml
 ```
@@ -99,14 +103,14 @@ pwsh -File scripts\Run-GUI.ps1           # 启动（默认入口；-Edition wpf 
    纯几何占位图（圆角方块 + 字母 P），不是 OEM 商标图形。等原创图标。
 4. `docs/` 下的文档写于旧仓库，里面出现的 `app\Fork\...`、`app\experiments\Predex.WinUI\...`
    是历史路径，未逐篇改写。
-5. **构建目前被许可审计挡住**：`Performix.Core\Mode\GHelperFanCurve.cs` 判定为疑似派生自
-   GPL-3.0 的 [seerge/g-helper](https://github.com/seerge/g-helper)，本轮**未收录**，
-   需原创重写后才能重新构建。影响面与引用清单见 [docs/LICENSING.md](docs/LICENSING.md)。
+5. **命名空间仍是 `PreySense.*`**，`GHelperFanCurve` 这个类型名也保持上游原名（方便对照
+   seerge/g-helper 的来源）；许可切换不涉及改名，统一改名时按
+   [docs/LICENSING.md](docs/LICENSING.md) §5 的引用点清单一处不漏。
 
 ## 待办
 
 - [ ] 原创品牌图标（替换 `assets/branding/` 与 `src/Performix.App/Assets/` 里的占位图）
-- [ ] 原创实现替换 `GHelperFanCurve.cs`（8 点风扇曲线模型 + 归一化 + 默认表），恢复构建
+- [x] 收录 `GHelperFanCurve.cs`（来源注释保留），整仓改为 GPL-3.0 分发
 - [ ] 第二轮：`PreySense.*` 命名空间统一改名
 - [ ] 刷新 `docs/` 里的历史路径引用
 
@@ -120,6 +124,9 @@ pwsh -File scripts\Run-GUI.ps1           # 启动（默认入口；-Edition wpf 
 
 ## 许可
 
-项目本体 MIT（见 [LICENSE](LICENSE)）：上游 PreySense 的授权行保留，另加 Performix contributors。
-本项目**不包含** Acer 商标图形，也**不包含** GPL 派生代码；第三方组件见
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+项目本体 **GPL-3.0**（见 [LICENSE](LICENSE)）：含派生自 seerge/g-helper 的
+`GHelperFanCurve.cs`，因此整仓按 GPL-3.0 分发；上游 PreySense 的 MIT 授权声明保留
+（[LICENSES/PreySense-MIT.txt](LICENSES/PreySense-MIT.txt)）。
+本项目**不包含** Acer 商标图形；商标、ASUS 字体、NvAPIWrapper 的 LGPL 等 GPL 之外的约束，
+逐条落在 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 与
+[docs/LICENSING.md](docs/LICENSING.md) §3。

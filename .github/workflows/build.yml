@@ -6,11 +6,6 @@ name: build
 # SDK: .NET 10 is required — .NET 8/9 SDKs cannot target net10.0-windows.
 # The repository does NOT vendor a portable SDK; CI uses the runner's installed one.
 # Locally, scripts/*.ps1 read $env:PERFORMIX_DOTNET or <repo>\tools\dotnet-sdk\dotnet.exe.
-#
-# NOTE: this workflow is expected to stay red until the GPL-derived
-# Performix.Core/Mode/GHelperFanCurve.cs is replaced by an original implementation
-# (see docs/LICENSING.md). Everything else — renames, layout, localization, tests — is
-# already green in a local run with that file present.
 
 on:
   push:
