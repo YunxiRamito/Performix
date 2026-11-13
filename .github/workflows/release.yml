@@ -27,11 +27,19 @@ name: release
 #   1. restore + build + test the solution
 #   2. scripts/build-app-zip.ps1   -> artifacts/Performix-win-x64.zip
 #      scripts/build-installer.ps1 -> artifacts/PerformixSetup.exe
-#   3. scripts/publish-release.ps1 -DryRun -SkipBuild -> artifacts/update.json
+#   3. scripts/get-release-notes.ps1 -> artifacts/release-notes.md
+#      (the CHANGELOG.md section for this version, or a short template - never a git log dump,
+#       which is unreadable on the Release page and drags in commits from earlier releases.
+#       docs/RELEASE.md section 5.1)
+#   4. scripts/publish-release.ps1 -DryRun -SkipBuild -> artifacts/update.json
 #      (dry run on purpose: the script computes the real sha256/size and writes the manifest,
-#       but performs the remote steps itself only on a workstation, where it can also commit
-#       update.json to the default branch. See the note at the bottom of this file.)
-#   4. upload the three assets to the GitHub Release.
+#       but the remote steps run here, in this workflow, not inside the script.)
+#   5. upload the three assets to the GitHub Release.
+#   6. commit that same manifest back to the default branch as github-actions[bot].
+#      The three GitHub proxies read the REPOSITORY copy, not the release asset, so without this
+#      step they keep serving whatever was committed last - a manifest describing a different
+#      build - and every accelerated download fails the sha256 gate. That is exactly what broke
+#      0.1.0-alpha.2 (local a8d5e3.../33490261 bytes vs CI 3d5048.../33489786 bytes).
 #
 # The release always carries THREE assets: the app zip, the amd64 installer and update.json.
 # Only the zip is listed in the manifest's assets[]; the installer is not an update asset.
@@ -65,7 +73,8 @@ on:
         default: false
         type: boolean
 
-# softprops/action-gh-release needs this to create the release and upload assets.
+# softprops/action-gh-release needs this to create the release and upload assets; the final step
+# needs it to push the manifest commit to the default branch.
 permissions:
   contents: write
 
@@ -91,7 +100,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history: release notes are diffed against the previous v* tag.
+          # Full history, not for release notes (those come from CHANGELOG.md): the last step
+          # commits to the default branch, and tag lookups must not run against a shallow clone.
           fetch-depth: 0
 
       - name: Setup .NET 10
@@ -175,23 +185,21 @@ jobs:
             throw 'the installer build did not produce artifacts/PerformixSetup.exe'
           }
 
+      # Release notes are the CHANGELOG.md section for this version. The previous version of this
+      # step ran `git log --pretty=format:'- %s'`, which put a wall of commit subjects on the
+      # Release page and included work that had shipped in an earlier release. scripts/
+      # get-release-notes.ps1 falls back to a short template (version + one summary line + a link
+      # to CHANGELOG.md) when the section is missing, so a release never fails on notes.
+      # The same file becomes update.json's "notes" field further down (docs/RELEASE.md 4).
       - name: Generate release notes
         run: |
-          $version = '${{ steps.ver.outputs.version }}'
-          $tag = '${{ steps.ver.outputs.tag }}'
-          $lines = @("Performix $version", '')
-          $previous = $null
-          $previous = (git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>$null)
-          if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($previous)) {
-            $lines += "Changes since ${previous}:"
-            $lines += @(git log --pretty=format:'- %s' "$previous..HEAD")
-          } else {
-            $lines += 'Changes:'
-            $lines += @(git log --pretty=format:'- %s' -n 30)
-          }
-          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          $utf8 = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllText((Join-Path $PWD 'artifacts/release-notes.md'), (($lines -join "`n") + "`n"), $utf8)
+          pwsh -NoProfile -File scripts/get-release-notes.ps1 `
+            -Version '${{ steps.ver.outputs.version }}' `
+            -Changelog CHANGELOG.md `
+            -OutputFile artifacts/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "get-release-notes.ps1 failed (exit $LASTEXITCODE)" }
+          if (-not (Test-Path artifacts/release-notes.md)) { throw 'the release notes were not written' }
+          Get-Content artifacts/release-notes.md -Raw
 
       # The manifest is written by the same script a local release uses, so field rules
       # (schema=1, channel, publishedAt, notes, assets[] with name/url/sizeBytes/sha256, UTF-8
@@ -254,13 +262,70 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Step 6 of the run (see the header). gh-proxy, ghproxy.net and jsDelivr read update.json
+      # from the DEFAULT BRANCH; only the github-releases source reads the release asset. This
+      # job rebuilt the zip, so the manifest above describes the CI bytes - and if the repository
+      # copy still describes the last workstation build, every accelerated download fails the
+      # sha256 gate. 0.1.0-alpha.2 shipped exactly that way and had to be fixed by hand.
+      #
+      # Idempotent: an identical manifest produces no commit. Runs after the release exists, so a
+      # failed upload never leaves the branch pointing at a manifest for an asset that is not there.
+      - name: Sync the manifest to the default branch
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          CHANNEL: ${{ steps.ver.outputs.channel }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if ($env:CHANNEL -eq 'alpha') { $manifestName = 'update.json' }
+          else { $manifestName = 'update-' + $env:CHANNEL + '.json' }
+          $source = Join-Path 'artifacts' $manifestName
+          if (-not (Test-Path $source)) { throw "the manifest was not written: $source" }
+
+          $branch = $env:DEFAULT_BRANCH
+          if ([string]::IsNullOrWhiteSpace($branch)) { $branch = 'main' }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # The checkout is a detached HEAD on the tag. Work on a throwaway branch that tracks the
+          # default branch, so nothing is ever pushed onto the tag's commit. artifacts/ is ignored
+          # by git, so switching branches leaves the built files alone.
+          git fetch origin $branch
+          git checkout -B release-manifest "origin/$branch"
+
+          Copy-Item -LiteralPath $source -Destination $manifestName -Force
+          git add -- $manifestName
+          git diff --cached --quiet -- $manifestName
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "$manifestName already matches this release; nothing to commit"
+            exit 0
+          }
+
+          # [skip ci]: this workflow only listens for v* tags and workflow_dispatch, so the push
+          # cannot loop back into it - the marker is for any workflow that does watch the branch.
+          git commit -m "release: $manifestName for $env:VERSION [skip ci]" -- $manifestName
+
+          # The branch can move while this job builds (60 minute timeout). Rebase and retry
+          # instead of failing a finished release on a lost race.
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            git push origin "HEAD:$branch"
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { throw "could not push $manifestName to $branch" }
+            Write-Host "push attempt $attempt failed; rebasing on origin/$branch"
+            git fetch origin $branch
+            git rebase "origin/$branch"
+            if ($LASTEXITCODE -ne 0) { git rebase --abort; throw "rebase onto origin/$branch failed" }
+          }
+          Write-Host "committed $manifestName ($env:VERSION) to $branch"
+          Write-Host "the proxies read $branch/$manifestName - give the CDNs a minute before checking them"
+
 # ---------------------------------------------------------------------------------------------
 # NOT done here, on purpose:
-#   * Committing update.json to the default branch. The three GitHub proxies (gh-proxy,
-#     ghproxy.net, jsDelivr) read that copy, so a release is not fully live until it lands -
-#     but a CI job pushing to main bypasses review and conflicts with concurrent work.
-#     Run scripts/publish-release.ps1 from a workstation for the full sequence (it commits the
-#     manifest), or commit the downloaded update.json by hand after the release.
 #   * npm publish (docs/RELEASE.md section 6) - needs a registry credential.
 #   * The one real-machine update test (docs/RELEASE.md section 8.3).
+#
+# The manifest commit to the default branch IS done here now (the step above). It used to be
+# left to a workstation run of scripts/publish-release.ps1, which is what let the repository
+# copy and the release asset describe two different builds.
 # ---------------------------------------------------------------------------------------------

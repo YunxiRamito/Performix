@@ -16,10 +16,44 @@
            scripts\invoke-update.ps1 must all be present. A running exe cannot overwrite itself,
            so a package without invoke-update.ps1 could never install itself.
         3. Zip the CONTENTS of the output directory (baseDirectory=false) so Performix.exe sits
-           at the zip root - that is where scripts\invoke-update.ps1 looks first.
-        4. Re-open the zip and assert Performix.exe and scripts/invoke-update.ps1 are entries,
+           at the zip root - that is where scripts\invoke-update.ps1 looks first. The container
+           is deterministic: ordinal-sorted entries, one fixed timestamp, no directory entries,
+           fixed attributes, fixed compression level (see the zip step for why).
+        4. Re-open the zip and assert Performix.exe and scripts\invoke-update.ps1 are entries,
            so a packaging change cannot silently ship an uninstallable update.
         5. Print sha256 and sizeBytes, which are the two hard gates of the manifest.
+
+    REPRODUCIBILITY - what this script does and does not give you.
+
+    Deterministic here (container only):
+        * entry order: relative paths, '/' separated, sorted with an ORDINAL comparison. A
+          culture-aware sort (Sort-Object) would order differently on a different locale, and
+          ZipFile.CreateFromDirectory takes the order straight from the file system.
+        * entry timestamps: one constant value for every entry. Without this the DOS timestamp
+          field carries each file's LastWriteTime, so two builds of identical content still
+          produce different bytes.
+        * no directory entries (they hold nothing and their order is file-system dependent),
+          external attributes fixed to 0, CompressionLevel.Optimal for every entry.
+
+    NOT deterministic - the content itself, so the hash is not portable between machines:
+        * the .NET SDK patch version: 10.0.1xx vs 10.0.2xx ships a different compiler and
+          runtime pack. CI uses whatever actions/setup-dotnet '10.0.x' resolves to that day;
+          a workstation uses its installed SDK (or tools\dotnet-sdk\ via $env:PERFORMIX_DOTNET).
+        * the Windows App SDK NuGet version and the whole restore graph (floating versions,
+          NuGet cache state, fallback folders).
+        * absolute source paths baked into the .pdb files in the publish output. The CI checkout
+          (D:\a\Performix\Performix) and a local checkout (anywhere) differ in length, which is
+          enough to change the bytes - and the 0.1.0-alpha.2 release showed exactly that:
+          33490261 bytes / a8d5e3... locally vs 33489786 bytes / 3d5048... on CI.
+        * PublishReadyToRun / PGO / ILLink: any of them changes the code that is compiled.
+          (This script does not pass them; keep it that way unless the release process changes.)
+        * MSBuild node reuse, incremental state, and anything else that makes a build depend on
+          what ran before it in the same workspace.
+
+    Consequence, and the rule the release process runs on (docs\RELEASE.md section 2.1):
+    the sha256 printed below is valid FOR THIS BUILD ONLY. The CI-built asset is the one that
+    ships; a local build is for verifying that the release works, never for producing the
+    hashes that go into the manifest.
 
     The script writes exactly two places: the publish output directory and the zip. It never
     touches git and never touches the network.
@@ -200,8 +234,10 @@ if ($DryRun) {
     Write-Host ('  gate: ' + (Join-Path $OutputDir 'Performix.exe') + ' exists') -ForegroundColor DarkGray
     Write-Host ('  gate: ' + (Join-Path $OutputDir 'resources.pri') + ' exists') -ForegroundColor DarkGray
     Write-Host ('  gate: ' + (Join-Path $OutputDir 'scripts\invoke-update.ps1') + ' exists') -ForegroundColor DarkGray
-    Write-Host ('  zip : CreateFromDirectory(' + $OutputDir + ', ' + $ZipPath + ', Optimal, includeBaseDirectory=false)') -ForegroundColor DarkGray
-    Write-Host '  then print sha256 + sizeBytes for the manifest' -ForegroundColor DarkGray
+    Write-Host ('  zip : deterministic container ' + $OutputDir + ' -> ' + $ZipPath) -ForegroundColor DarkGray
+    Write-Host '        (ordinal-sorted entries, fixed 1980-01-01 timestamp, no directory entries,' -ForegroundColor DarkGray
+    Write-Host '         fixed attributes, CompressionLevel.Optimal; Performix.exe at the root)' -ForegroundColor DarkGray
+    Write-Host '  then print sha256 + sizeBytes for the manifest (valid for this build only)' -ForegroundColor DarkGray
     exit 0
 }
 
@@ -276,7 +312,7 @@ if (-not (Test-Path -LiteralPath $packagedUpdateScript -PathType Leaf)) {
     Copy-Item -LiteralPath $updateScriptSource -Destination $packagedUpdateScript -Force
 }
 
-# ------------------------------------------------------------------ 3. zip
+# ------------------------------------------------------------------ 3. zip (deterministic container)
 $zipParent = Split-Path -Parent $ZipPath
 if (-not (Test-Path -LiteralPath $zipParent -PathType Container)) {
     New-Item -ItemType Directory -Path $zipParent -Force | Out-Null
@@ -286,12 +322,62 @@ if (Test-Path -LiteralPath $ZipPath -PathType Leaf) {
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-Write-Step 'compressing ...'
-[System.IO.Compression.ZipFile]::CreateFromDirectory(
-    $OutputDir,
-    $ZipPath,
-    [System.IO.Compression.CompressionLevel]::Optimal,
-    $false)
+Add-Type -AssemblyName System.IO.Compression
+
+# ZipFile.CreateFromDirectory was the whole problem: it takes entry order from the file system,
+# each entry's DOS timestamp from the file's LastWriteTime, and writes directory entries too - so
+# two builds of byte-identical content produced different archives. Pin every one of those inputs
+# here instead. This makes the CONTAINER deterministic; it does not make the content reproducible
+# (see the REPRODUCIBILITY block in the header).
+$rootFull = [System.IO.Path]::GetFullPath($OutputDir).TrimEnd('\', '/')
+$entryNames = New-Object System.Collections.Generic.List[string]
+foreach ($file in (Get-ChildItem -LiteralPath $OutputDir -Recurse -File -Force)) {
+    $full = [System.IO.Path]::GetFullPath($file.FullName)
+    if ($full.Length -le ($rootFull.Length + 1)) { continue }
+    # Zip entry names always use '/', whatever the platform separator is.
+    $entryNames.Add($full.Substring($rootFull.Length + 1).Replace('\', '/'))
+}
+$names = $entryNames.ToArray()
+# Ordinal, not Sort-Object: a culture-aware comparison orders 'A' / 'a' / '_' differently
+# depending on the machine locale, and that alone changes the bytes.
+[Array]::Sort($names, [System.StringComparer]::Ordinal)
+
+# Kind=Local on purpose: .NET converts a UTC DateTime to local time before writing the DOS time
+# field, which would put the runner's time zone back into the archive. A fixed wall clock keeps
+# the field identical everywhere. 1980-01-01 is the earliest value the DOS format can hold.
+$fixedStamp = [datetime]::new(1980, 1, 1, 0, 0, 0, [System.DateTimeKind]::Local)
+
+Write-Step ('compressing ' + $names.Count + ' entries (deterministic container) ...')
+$zipStream = [System.IO.File]::Open($ZipPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+try {
+    $archive = [System.IO.Compression.ZipArchive]::new(
+        $zipStream,
+        [System.IO.Compression.ZipArchiveMode]::Create,
+        $false)
+    try {
+        foreach ($name in $names) {
+            $sourcePath = [System.IO.Path]::Combine($rootFull, $name.Replace('/', '\'))
+            $entry = $archive.CreateEntry($name, [System.IO.Compression.CompressionLevel]::Optimal)
+            $entry.LastWriteTime = $fixedStamp
+            $entry.ExternalAttributes = 0
+            $entryStream = $entry.Open()
+            try {
+                $sourceStream = [System.IO.File]::OpenRead($sourcePath)
+                try {
+                    $sourceStream.CopyTo($entryStream)
+                } finally {
+                    $sourceStream.Dispose()
+                }
+            } finally {
+                $entryStream.Dispose()
+            }
+        }
+    } finally {
+        $archive.Dispose()
+    }
+} finally {
+    $zipStream.Dispose()
+}
 if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
     Stop-WithMessage ('the zip was not created: ' + $ZipPath)
 }
@@ -327,5 +413,18 @@ Write-Host ('sizeBytes  : ' + $size)
 Write-Host ('sha256     : ' + $hash)
 Write-Host ('entries    : ' + $entries.Count + ' (Performix.exe at root, scripts\invoke-update.ps1 present)')
 Write-Host '============================================' -ForegroundColor Green
-Write-Host 'Copy these two values into artifacts\update.json (scripts\publish-release.ps1 does it).' -ForegroundColor DarkGray
+Write-Host ''
+Write-Host 'REPRODUCIBILITY - read this before using the hash:' -ForegroundColor Yellow
+Write-Host '  deterministic   : the zip CONTAINER (ordinal-sorted entries, one fixed 1980-01-01' -ForegroundColor DarkGray
+Write-Host '                    timestamp, no directory entries, fixed attributes, Optimal level)' -ForegroundColor DarkGray
+Write-Host '  NOT deterministic: the CONTENT - .NET SDK patch version, Windows App SDK / NuGet' -ForegroundColor DarkGray
+Write-Host '                    restore graph, ReadyToRun/PGO/ILLink, and the absolute source paths' -ForegroundColor DarkGray
+Write-Host '                    baked into the .pdb files all change the bytes.' -ForegroundColor DarkGray
+Write-Host '  => THIS SHA256 IS VALID FOR THIS BUILD ONLY. The same commit built on the CI runner' -ForegroundColor Yellow
+Write-Host '     produces a different sha256. The CI-built asset is the one that ships; a local build' -ForegroundColor Yellow
+Write-Host '     is for verifying the release, never for the numbers in the manifest' -ForegroundColor Yellow
+Write-Host '     (docs\RELEASE.md section 2.1).' -ForegroundColor Yellow
+Write-Host ''
+Write-Host 'scripts\publish-release.ps1 writes these values into the manifest; when the tag also' -ForegroundColor DarkGray
+Write-Host 'fires the release workflow it reconciles the manifest with the PUBLISHED asset first.' -ForegroundColor DarkGray
 exit 0

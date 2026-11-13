@@ -99,7 +99,7 @@ public static class VersionText
                 return -1;
             }
 
-            return Math.Sign(string.Compare(leftPre, rightPre, StringComparison.OrdinalIgnoreCase));
+            return ComparePrerelease(leftPre, rightPre);
         }
 
         if (leftOk)
@@ -113,6 +113,53 @@ public static class VersionText
         }
 
         return Math.Sign(string.Compare(left, right, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Orders two prerelease labels the way a human reads them: <c>alpha.10</c> is newer than
+    /// <c>alpha.9</c> (a plain string compare says the opposite, which made the installer pick
+    /// the older build once a channel passed its ninth alpha). Dot-separated segments are compared
+    /// one by one; two numeric segments compare numerically, anything else ordinal, and a label
+    /// that runs out of segments first is the smaller one (<c>alpha</c> &lt; <c>alpha.1</c>).
+    /// </summary>
+    public static int ComparePrerelease(string? left, string? right)
+    {
+        if (string.IsNullOrEmpty(left) && string.IsNullOrEmpty(right))
+        {
+            return 0;
+        }
+
+        if (string.IsNullOrEmpty(left))
+        {
+            return -1;
+        }
+
+        if (string.IsNullOrEmpty(right))
+        {
+            return 1;
+        }
+
+        string[] leftParts = left.Split('.');
+        string[] rightParts = right.Split('.');
+        int shared = Math.Min(leftParts.Length, rightParts.Length);
+
+        for (int i = 0; i < shared; i++)
+        {
+            string a = leftParts[i];
+            string b = rightParts[i];
+            bool aNumeric = int.TryParse(a, out int aNumber);
+            bool bNumeric = int.TryParse(b, out int bNumber);
+
+            int segment = aNumeric && bNumeric
+                ? aNumber.CompareTo(bNumber)
+                : string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+            if (segment != 0)
+            {
+                return Math.Sign(segment);
+            }
+        }
+
+        return Math.Sign(leftParts.Length.CompareTo(rightParts.Length));
     }
 
     /// <summary>True when both strings name the same release (tag <c>v1.2.3</c> == <c>1.2.3</c>).</summary>

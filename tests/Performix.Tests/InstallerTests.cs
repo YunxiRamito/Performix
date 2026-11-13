@@ -389,8 +389,24 @@ public class VersionTextTests
     [DataRow("10.0.15-preview.1", "10.0.15", -1)]
     [DataRow("not-a-version", "10.0.15", -1)]      // junk sorts below a real version
     [DataRow("10.0.15", "not-a-version", 1)]
+    [DataRow("v0.1.0-alpha.9", "v0.1.0-alpha.10", -1)] // alpha.10 is newer than alpha.9
+    [DataRow("v0.1.0-alpha.10", "v0.1.0-alpha.9", 1)]
+    [DataRow("v0.1.0-beta.1", "v0.1.0-alpha.2", 1)]    // beta label sorts after alpha
+    [DataRow("v0.1.0-alpha", "v0.1.0-alpha.1", -1)]    // a shorter label is the older one
+    [DataRow("v0.2.0-alpha.1", "v0.1.9", 1)]           // numbers outrank the label
     public void Compare_OrdersReleases(string left, string right, int expected)
         => Assert.AreEqual(expected, Math.Sign(VersionText.Compare(left, right)), $"{left} vs {right}");
+
+    [DataTestMethod]
+    [DataRow("alpha.9", "alpha.10", -1)]
+    [DataRow("alpha.10", "alpha.9", 1)]
+    [DataRow("alpha.2", "alpha.2", 0)]
+    [DataRow("beta.1", "alpha.10", 1)]
+    [DataRow(null, "alpha.1", -1)]
+    [DataRow("alpha.1", null, 1)]
+    [DataRow(null, null, 0)]
+    public void ComparePrerelease_ComparesSegmentsNumerically(string? left, string? right, int expected)
+        => Assert.AreEqual(expected, Math.Sign(VersionText.ComparePrerelease(left, right)), $"{left} vs {right}");
 
     [TestMethod]
     public void AreSame_IgnoresTheTagPrefix()
@@ -1038,6 +1054,272 @@ public class GitHubReleaseTests
         Assert.AreEqual("local", GitHubRelease.VersionFromFileName(@"C:\tmp\Performix-win-x64.zip"));
         Assert.AreEqual("0.2.0", GitHubRelease.VersionFromFileName(@"C:\tmp\v0.2.0.zip"));
         Assert.AreEqual("local", GitHubRelease.VersionFromFileName(null));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// Latest-release selection (the 404 regression)
+//
+// /releases/latest answers 404 whenever every published release is a prerelease, which is how
+// Performix ships. These tests pin the list endpoint + selection rules that replaced it, so the
+// installer can never again answer "无法确定最新版本" while a perfectly installable alpha exists.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+[TestClass]
+public class GitHubReleaseListTests
+{
+    /// <summary>One release object for the list fixture (no assets needed for selection).</summary>
+    private static string Entry(string tag, bool prerelease, bool draft = false,
+        string publishedAt = "2026-11-01T00:00:00Z")
+        => $$"""
+        {
+          "tag_name": "{{tag}}",
+          "prerelease": {{(prerelease ? "true" : "false")}},
+          "draft": {{(draft ? "true" : "false")}},
+          "published_at": "{{publishedAt}}",
+          "assets": [
+            { "name": "Performix-win-x64.zip", "browser_download_url": "https://example.test/{{tag}}/Performix-win-x64.zip" }
+          ]
+        }
+        """;
+
+    private static string ListJson(params string[] entries) => "[" + string.Join(",", entries) + "]";
+
+    [TestMethod]
+    public void ListApiUrl_AsksForTheReleaseList()
+    {
+        Assert.AreEqual("https://api.github.com/repos/YunxiRamito/Performix/releases?per_page=20",
+            GitHubRelease.ListApiUrl());
+        Assert.AreEqual("https://api.github.com/repos/o/r/releases?per_page=5",
+            GitHubRelease.ListApiUrl(5, "o", "r"));
+    }
+
+    [TestMethod]
+    public void ParseReleaseList_ReadsDraftsPrereleasesAndTimestamps()
+    {
+        GitHubReleaseListParseResult parsed = GitHubRelease.ParseReleaseList(ListJson(
+            Entry("v0.1.0-alpha.2", prerelease: true, publishedAt: "2026-11-13T15:25:26Z"),
+            Entry("v0.1.0", prerelease: false, draft: true)));
+
+        Assert.IsTrue(parsed.Ok, parsed.Error);
+        Assert.AreEqual(2, parsed.Releases.Count);
+        Assert.AreEqual("v0.1.0-alpha.2", parsed.Releases[0].Tag);
+        Assert.IsTrue(parsed.Releases[0].Prerelease);
+        Assert.IsFalse(parsed.Releases[0].Draft);
+        Assert.AreEqual(2026, parsed.Releases[0].PublishedAt!.Value.Year);
+        Assert.IsTrue(parsed.Releases[1].Draft);
+    }
+
+    [TestMethod]
+    public void ParseReleaseList_ReportsApiErrorsAndNonArrays()
+    {
+        GitHubReleaseListParseResult rateLimited = GitHubRelease.ParseReleaseList(
+            """{ "message": "API rate limit exceeded" }""");
+        Assert.IsFalse(rateLimited.Ok);
+        StringAssert.Contains(rateLimited.Error, "rate limit");
+
+        Assert.IsFalse(GitHubRelease.ParseReleaseList(null).Ok);
+        Assert.IsFalse(GitHubRelease.ParseReleaseList("{ not json").Ok);
+        Assert.IsFalse(GitHubRelease.ParseReleaseList("""{ "tag_name": "v1.0.0" }""").Ok);
+    }
+
+    [TestMethod]
+    public void ParseReleaseList_EmptyArrayIsNotAnError()
+    {
+        GitHubReleaseListParseResult parsed = GitHubRelease.ParseReleaseList("[]");
+
+        Assert.IsTrue(parsed.Ok, parsed.Error);
+        Assert.AreEqual(0, parsed.Releases.Count);
+    }
+
+    /// <summary>The exact field failure: the repository has prereleases only.</summary>
+    [TestMethod]
+    public void SelectLatest_OnlyPrereleases_PicksTheHighestVersion()
+    {
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(
+                Entry("v0.1.0-alpha.1", prerelease: true, publishedAt: "2026-11-01T00:00:00Z"),
+                Entry("v0.1.0-alpha.2", prerelease: true, publishedAt: "2026-11-13T15:25:26Z"))).Releases);
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual("v0.1.0-alpha.2", chosen.Tag);
+    }
+
+    [TestMethod]
+    public void SelectLatest_PrefersStableOverItsOwnPrerelease()
+    {
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(
+                Entry("v0.1.0-alpha.2", prerelease: true),
+                Entry("v0.1.0", prerelease: false))).Releases);
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual("v0.1.0", chosen.Tag);
+    }
+
+    [TestMethod]
+    public void SelectLatest_PrefersBetaOverAlpha()
+    {
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(
+                Entry("v0.2.0-alpha.1", prerelease: true),
+                Entry("v0.1.0-beta.1", prerelease: true))).Releases);
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual("v0.1.0-beta.1", chosen.Tag);
+    }
+
+    [TestMethod]
+    public void SelectLatest_NeverPicksADraft()
+    {
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(
+                Entry("v0.3.0", prerelease: false, draft: true),
+                Entry("v0.1.0-alpha.2", prerelease: true))).Releases);
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual("v0.1.0-alpha.2", chosen.Tag);
+    }
+
+    [TestMethod]
+    public void SelectLatest_SortsVersionSegmentsNumerically()
+    {
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(
+                Entry("v0.1.0-alpha.9", prerelease: true, publishedAt: "2026-11-10T00:00:00Z"),
+                Entry("v0.1.0-alpha.10", prerelease: true, publishedAt: "2026-11-09T00:00:00Z"))).Releases);
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual("v0.1.0-alpha.10", chosen.Tag, "a string compare would pick alpha.9");
+    }
+
+    [TestMethod]
+    public void SelectLatest_EqualVersions_TakeTheLaterPublishedOne()
+    {
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(
+                Entry("v0.1.0-alpha.2", prerelease: true, publishedAt: "2026-11-01T00:00:00Z"),
+                Entry("v0.1.0-alpha.2", prerelease: true, publishedAt: "2026-11-13T00:00:00Z"))).Releases);
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual(new DateTimeOffset(2026, 11, 13, 0, 0, 0, TimeSpan.Zero), chosen.PublishedAt);
+    }
+
+    [TestMethod]
+    public void SelectLatest_EmptyOrAllDraftLists_ReturnNull()
+    {
+        Assert.IsNull(GitHubRelease.SelectLatest(GitHubRelease.ParseReleaseList("[]").Releases));
+        Assert.IsNull(GitHubRelease.SelectLatest(null));
+        Assert.IsNull(GitHubRelease.SelectLatest(Array.Empty<GitHubReleaseInfo>()));
+        Assert.IsNull(GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(Entry("v0.1.0", prerelease: false, draft: true))).Releases));
+    }
+
+    [TestMethod]
+    public void SelectLatest_UnparseableTags_FallBackToNewestPublished()
+    {
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            GitHubRelease.ParseReleaseList(ListJson(
+                Entry("nightly", prerelease: true, publishedAt: "2026-11-01T00:00:00Z"),
+                Entry("weekly", prerelease: true, publishedAt: "2026-11-12T00:00:00Z"))).Releases);
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual("weekly", chosen.Tag);
+    }
+
+    [DataTestMethod]
+    [DataRow("v0.1.0-alpha.2", ReleaseChannel.Alpha)]
+    [DataRow("0.1.0-alpha.2", ReleaseChannel.Alpha)]
+    [DataRow("v0.1.0-beta.3", ReleaseChannel.Beta)]
+    [DataRow("v0.1.0-rc.1", ReleaseChannel.Beta)]
+    [DataRow("v0.1.0", ReleaseChannel.Stable)]
+    [DataRow("0.1.0", ReleaseChannel.Stable)]
+    public void ChannelOf_ClassifiesTheTag(string tag, ReleaseChannel expected)
+        => Assert.AreEqual(expected, GitHubRelease.ChannelOf(new GitHubReleaseInfo(tag, Array.Empty<GitHubAsset>())));
+
+    [TestMethod]
+    public void TagCandidates_TogglesTheVPrefix()
+    {
+        CollectionAssert.AreEqual(new[] { "0.1.0-alpha.2", "v0.1.0-alpha.2" },
+            GitHubRelease.TagCandidates("0.1.0-alpha.2").ToArray());
+        CollectionAssert.AreEqual(new[] { "v0.1.0-alpha.2", "0.1.0-alpha.2" },
+            GitHubRelease.TagCandidates(" v0.1.0-alpha.2 ").ToArray());
+        CollectionAssert.AreEqual(new[] { "V0.1.0", "0.1.0" },
+            GitHubRelease.TagCandidates("V0.1.0").ToArray());
+        Assert.AreEqual(0, GitHubRelease.TagCandidates(null).Count);
+        Assert.AreEqual(0, GitHubRelease.TagCandidates("   ").Count);
+    }
+
+    [TestMethod]
+    public void ReleasesFeedUrl_PointsAtThePublicFeed()
+        => Assert.AreEqual("https://github.com/YunxiRamito/Performix/releases.atom",
+            GitHubRelease.ReleasesFeedUrl());
+
+    [DataTestMethod]
+    [DataRow("0.1.0-alpha.2", "v0.1.0-alpha.2")]   // the spelling the user forgot the "v" for
+    [DataRow("v0.1.0-alpha.2", "v0.1.0-alpha.2")]
+    [DataRow("V0.1.0-ALPHA.2", "v0.1.0-alpha.2")]
+    [DataRow("9.9.9", null)]                       // never invents a tag that is not there
+    [DataRow(null, null)]
+    public void MatchTag_ResolvesTheSpellingAgainstTheFeed(string? requested, string? expected)
+    {
+        var feed = new[] { "v0.1.0-alpha.2", "v0.1.0-alpha.1" };
+
+        Assert.AreEqual(expected, GitHubRelease.MatchTag(feed, requested), requested);
+        Assert.IsNull(GitHubRelease.MatchTag(Array.Empty<string>(), requested));
+        Assert.IsNull(GitHubRelease.MatchTag(null, requested));
+    }
+
+    /// <summary>
+    /// The feed fallback exists because the API is rate limited per IP; it must survive a real
+    /// feed body (self link, entry ids, the tag link) without an XML parser.
+    /// </summary>
+    [TestMethod]
+    public void ParseReleasesFeed_ReadsTagsNewestFirst()
+    {
+        const string feed = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+          <id>tag:github.com,2008:/YunxiRamito/Performix/releases</id>
+          <link rel="self" type="application/atom+xml" href="https://github.com/YunxiRamito/Performix/releases.atom"/>
+          <entry>
+            <id>tag:github.com,2008:Repository/123/v0.1.0-alpha.2</id>
+            <updated>2026-11-13T15:25:26Z</updated>
+            <link rel="alternate" type="text/html" href="https://github.com/YunxiRamito/Performix/releases/tag/v0.1.0-alpha.2"/>
+            <title>v0.1.0-alpha.2</title>
+          </entry>
+          <entry>
+            <id>tag:github.com,2008:Repository/123/v0.1.0-alpha.1</id>
+            <link rel="alternate" type="text/html" href="https://github.com/YunxiRamito/Performix/releases/tag/v0.1.0-alpha.1"/>
+            <title>v0.1.0-alpha.1</title>
+          </entry>
+        </feed>
+        """;
+
+        CollectionAssert.AreEqual(new[] { "v0.1.0-alpha.2", "v0.1.0-alpha.1" },
+            GitHubRelease.ParseReleasesFeed(feed).ToArray());
+
+        Assert.AreEqual(0, GitHubRelease.ParseReleasesFeed(null).Count);
+        Assert.AreEqual(0, GitHubRelease.ParseReleasesFeed("<feed></feed>").Count);
+        Assert.AreEqual(0, GitHubRelease.ParseReleasesFeed("not xml").Count);
+    }
+
+    [TestMethod]
+    public void ParseReleasesFeed_SelectionPrefersTheStableEntry()
+    {
+        const string feed = """
+        <feed>
+          <entry><link href="https://github.com/o/r/releases/tag/v0.2.0-alpha.1"/></entry>
+          <entry><link href="https://github.com/o/r/releases/tag/v0.1.0"/></entry>
+        </feed>
+        """;
+
+        IReadOnlyList<string> tags = GitHubRelease.ParseReleasesFeed(feed);
+        GitHubReleaseInfo? chosen = GitHubRelease.SelectLatest(
+            tags.Select(tag => new GitHubReleaseInfo(tag, Array.Empty<GitHubAsset>())).ToList());
+
+        Assert.IsNotNull(chosen);
+        Assert.AreEqual("v0.1.0", chosen.Tag);
     }
 }
 

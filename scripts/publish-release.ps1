@@ -12,15 +12,24 @@
         3. artifacts\update.json, schema 1, UTF-8 without BOM              (section 4)
         4. git tag + push, then gh release create --prerelease with the zip,
            the installer and the manifest                                  (section 5)
-        5. commit the same manifest to the default branch                  (section 7)
+        5. reconcile: download the published asset and, when it is not the file this run built
+           (a tag push also runs the release workflow, which rebuilds and --clobber-uploads -
+           CI builds are not bit-for-bit identical to a workstation build, docs\RELEASE.md
+           section 2.1), rewrite the manifest from the PUBLISHED bytes and re-upload it
+                                                                           (section 5.2)
+        6. commit the same manifest to the default branch                  (section 7)
            The three GitHub proxies (gh-proxy, ghproxy.net, jsDelivr) read that copy; a release
            without it leaves them at 404 and only the official sources work.
-        6. read back: download the release asset and compare sha256 + size, then report which
+        7. read back: download the release asset and compare sha256 + size, then report which
            sources already serve the new version                           (sections 7 and 8)
 
     Every step is a hard gate: the first failure stops the run and says which step it was.
     Remote steps only run when the local ones succeeded - the order "upload first, then write the
     manifest, then read it back" cannot be reversed (section 0 of the doc).
+
+    NOTES: -NotesFile, else -Notes, else the CHANGELOG.md section for this version (via
+    scripts\get-release-notes.ps1, the same rule the release workflow uses). Never a git log
+    dump - docs\RELEASE.md section 5.1.
 
     NOT automated: npm publish (section 6). It needs a registry credential this machine may not
     have, so the script prints the npm commands at the end and the source check reports whether
@@ -41,6 +50,10 @@
 
 .PARAMETER NotesFile
     File to read the release notes from (UTF-8 or UTF-8 with BOM; a BOM is stripped).
+
+    When neither -Notes nor -NotesFile is given, the notes are the CHANGELOG.md section for this
+    version, or a short fallback template (scripts\get-release-notes.ps1 - the same rule the
+    release workflow applies, so a local release and a CI release read the same).
 
 .PARAMETER Tag
     Git tag. Default v<Version> (the client strips the leading v).
@@ -361,7 +374,35 @@ if (-not [string]::IsNullOrWhiteSpace($NotesFile)) {
     $notesText = $Notes.TrimEnd()
     Write-Note ('notes from -Notes (' + $notesText.Length + ' chars)')
 } else {
-    Write-Warn 'no -Notes and no -NotesFile: the manifest notes and the release body will be empty'
+    # Neither given: the same rule CI uses (docs\RELEASE.md section 5.1) - the CHANGELOG.md
+    # section for this version, or a short template. Never a git log dump: commit subjects are
+    # unreadable on the Release page and drag in work that shipped in an earlier release.
+    $notesScript = Join-Path $PSScriptRoot 'get-release-notes.ps1'
+    if (-not (Test-Path -LiteralPath $notesScript -PathType Leaf)) {
+        Stop-WithMessage ('missing ' + $notesScript + '; it supplies the notes when neither -Notes nor -NotesFile is given')
+    }
+    $engine = (Get-Process -Id $PID).Path
+    $notesTmp = Join-Path ([System.IO.Path]::GetTempPath()) ('performix-notes-' + [guid]::NewGuid().ToString('N') + '.md')
+    Write-Note ('> ' + $notesScript + ' -Version ' + $Version)
+    try {
+        # Through a file, not through stdout: anything the child writes to stdout would otherwise
+        # end up inside the release body.
+        & $engine -NoProfile -ExecutionPolicy Bypass -File $notesScript -Version $Version `
+            -RepositorySlug $RepositorySlug -Branch $Branch -OutputFile $notesTmp
+        if ($LASTEXITCODE -ne 0) {
+            Stop-WithMessage ('get-release-notes.ps1 failed (exit ' + $LASTEXITCODE + ')')
+        }
+        if (-not (Test-Path -LiteralPath $notesTmp -PathType Leaf)) {
+            Stop-WithMessage ('get-release-notes.ps1 wrote no notes file: ' + $notesTmp)
+        }
+        $notesText = $Utf8NoBom.GetString([System.IO.File]::ReadAllBytes($notesTmp)).TrimStart([char]0xFEFF).TrimEnd()
+    } finally {
+        if (Test-Path -LiteralPath $notesTmp) { Remove-Item -LiteralPath $notesTmp -Force -ErrorAction SilentlyContinue }
+    }
+    if ([string]::IsNullOrWhiteSpace($notesText)) {
+        Stop-WithMessage 'get-release-notes.ps1 produced empty notes'
+    }
+    Write-Note ('notes for ' + $Version + ' (' + $notesText.Length + ' chars, source reported above)')
 }
 
 if (-not (Test-Path -LiteralPath $ArtifactsDir -PathType Container)) {
@@ -441,6 +482,8 @@ if ($DryRun) {
     Write-Host ('  git tag ' + $Tag) -ForegroundColor DarkGray
     Write-Host ('  git push origin ' + $Tag) -ForegroundColor DarkGray
     Write-Host ('  gh ' + ($releaseArgs -join ' ')) -ForegroundColor DarkGray
+    Write-Host ('  download ' + $assetUrl + ', and if it is not this build (' + $zipHash + ', ' + $zipSize + ' bytes)') -ForegroundColor DarkGray
+    Write-Host ('             rewrite ' + $manifestName + ' from the published bytes and gh release upload --clobber it') -ForegroundColor DarkGray
     Write-Host ('  Copy-Item ' + $manifestPath + ' ' + (Join-Path $repo $manifestName)) -ForegroundColor DarkGray
     Write-Host ('  git add -- ' + $manifestName + '   (on branch ' + $Branch + ')') -ForegroundColor DarkGray
     Write-Host ('  git commit -m "release: ' + $manifestName + ' for ' + $Version + '" -- ' + $manifestName) -ForegroundColor DarkGray
@@ -481,7 +524,65 @@ $releaseArgs = @('release', 'create', $Tag, $ZipPath, $InstallerPath, $manifestP
 if ($Channel -ne 'stable') { $releaseArgs += '--prerelease' }
 Invoke-Tool -Exe $gh.Source -Arguments $releaseArgs | Out-Null
 
-# ==================================================================== 8. commit the manifest
+# ==================================================================== 8. reconcile with the published asset
+# A tag push also runs .github\workflows\release.yml, which rebuilds the package and
+# --clobber-uploads it. CI builds are not bit-for-bit identical to a workstation build
+# (docs\RELEASE.md section 2.1), so the asset that ends up on the Release can be a different
+# file from the one this run built. The published bytes are the truth: the manifest - and the
+# copy committed in the next step, which is what gh-proxy / ghproxy.net / jsDelivr serve - has
+# to describe what users actually download, otherwise every accelerated download fails the
+# sha256 gate. That is exactly what happened to 0.1.0-alpha.2.
+Write-Step 'reconcile the manifest with the published asset'
+$publishedHash = ''
+$publishedSize = 0
+$publishedKnown = $false
+for ($attempt = 1; $attempt -le 6 -and -not $publishedKnown; $attempt++) {
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('performix-published-' + [guid]::NewGuid().ToString('N') + '.zip')
+    try {
+        Write-Note ('attempt ' + $attempt + ': GET ' + $assetUrl)
+        Invoke-WebRequest -UseBasicParsing -Uri $assetUrl -OutFile $tmp -TimeoutSec 300
+        $publishedHash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+        $publishedSize = (Get-Item -LiteralPath $tmp).Length
+        $publishedKnown = $true
+    } catch {
+        Write-Warn ('could not read the published asset back: ' + $_.Exception.Message)
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+    }
+    if (-not $publishedKnown -and $attempt -lt 6) { Start-Sleep -Seconds 10 }
+}
+
+if (-not $publishedKnown) {
+    Write-Warn ('the published asset could not be read; the manifest keeps this build''s hashes (' + $zipHash + '). ' +
+        'The read-back step below fails if the asset really differs.')
+} elseif ($publishedHash -eq $zipHash -and $publishedSize -eq $zipSize) {
+    Write-Note 'the published asset is this build (sha256 and size match)'
+} else {
+    Write-Warn ('the published asset is NOT this build: this build ' + $zipHash + ' / ' + $zipSize +
+        ' bytes, published ' + $publishedHash + ' / ' + $publishedSize + ' bytes.')
+    Write-Warn 'the published bytes win - rewriting the manifest from the asset and re-uploading it'
+    $zipHash = $publishedHash
+    $zipSize = $publishedSize
+    $manifestText = New-ManifestText `
+        -ManifestChannel $Channel `
+        -ManifestVersion $Version `
+        -PublishedAt $publishedAt `
+        -NotesText $notesText `
+        -MinimumVersion $MinVersion `
+        -AssetName $ZipAssetName `
+        -AssetUrl $assetUrl `
+        -SizeBytes $zipSize `
+        -Sha256 $zipHash
+    [System.IO.File]::WriteAllText($manifestPath, $manifestText, $Utf8NoBom)
+    $manifest = Assert-ManifestFile -Path $manifestPath -ExpectedChannel $Channel -ExpectedVersion $Version `
+        -ExpectedSize $zipSize -ExpectedSha $zipHash
+    Write-Note ('rewritten ' + $manifestPath + ' for the published asset')
+    Invoke-Tool -Exe $gh.Source -Arguments @('release', 'upload', $Tag, $manifestPath, '--clobber') | Out-Null
+    Write-Note ('re-uploaded ' + $manifestName + ' to the release')
+    Write-Note ('this build''s own package stays at ' + $ZipPath + '; it is not what the manifest points at')
+}
+
+# ==================================================================== 9. commit the manifest
 Write-Step ('commit ' + $manifestName + ' to ' + $Branch)
 $rootManifest = Join-Path $repo $manifestName
 Copy-Item -LiteralPath $manifestPath -Destination $rootManifest -Force
@@ -496,7 +597,7 @@ if ($diffCode -eq 0) {
     Invoke-Tool -Exe 'git' -Arguments @('push', 'origin', $Branch) | Out-Null
 }
 
-# ==================================================================== 9. read back
+# ==================================================================== 10. read back
 Write-Step 'read back the release asset'
 $downloadOk = $false
 $downloadHash = ''
@@ -520,7 +621,7 @@ for ($attempt = 1; $attempt -le 6 -and -not $downloadOk; $attempt++) {
     if (-not $downloadOk -and $attempt -lt 6) { Start-Sleep -Seconds 10 }
 }
 if (-not $downloadOk) {
-    $script:Failures.Add('the release asset does not match the local zip') | Out-Null
+    $script:Failures.Add('the release asset does not match the manifest') | Out-Null
     Stop-WithMessage ('the published asset does not match the manifest (' + $zipHash + ' / ' + $zipSize + ' bytes). ' +
         'Do not announce this release: gh release upload --clobber, or mark the release draft.')
 }
@@ -592,10 +693,10 @@ foreach ($r in $registryResults) {
 }
 Write-Host '=====================================================' -ForegroundColor Green
 
-# ==================================================================== 10. summary
+# ==================================================================== 11. summary
 Write-Host ''
 Write-Host ('[publish] ' + $Version + ' released as ' + $Tag + ' (' + $Channel + ')') -ForegroundColor Green
-Write-Host ('[publish] zip   ' + $ZipAssetName + '  ' + $zipSize + ' bytes  ' + $zipHash)
+Write-Host ('[publish] zip   ' + $ZipAssetName + '  ' + $zipSize + ' bytes  ' + $zipHash + '  (what the manifest and the release carry)')
 Write-Host ('[publish] setup ' + $InstallerAssetName + '  ' + $installerSize + ' bytes  ' + $installerHash)
 Write-Host ('[publish] manifest ' + $manifestName + ' (release asset + ' + $Branch + ')')
 Write-Host '[publish] still manual: npm publish (docs\RELEASE.md section 6) and the one real-machine update test (section 8.3)' -ForegroundColor Yellow

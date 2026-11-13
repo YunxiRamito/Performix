@@ -9,6 +9,9 @@
 提交到仓库默认分支（供三个 GitHub 代理源读取）→ 从线上回读复核 → 才算发布完成**。
 顺序不能颠倒：先传包、再写清单、最后回读验证。
 
+推一个 `v*` tag 会触发 CI 跑完整条链路，并且**自己把 `update.json` 提交回默认分支**（§5.1）；
+本地 `scripts\publish-release.ps1` 走同一套门禁，上传后还会和线上资产对账（§5.2）。
+
 ---
 
 ## 1. 源与文件对应关系
@@ -122,7 +125,7 @@ Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip -CompressionLe
 
 | 脚本 | 干什么 |
 |---|---|
-| `scripts\build-app-zip.ps1 -Version <ver>` | §2 的 publish + 打包，产出 `artifacts\Performix-win-x64.zip`，跑完打印 sha256 / sizeBytes |
+| `scripts\build-app-zip.ps1 -Version <ver>` | §2 的 publish + 打包（确定性容器，见 §2.1），产出 `artifacts\Performix-win-x64.zip`，跑完打印 sha256 / sizeBytes（**仅本次构建有效**） |
 | `scripts\build-installer.ps1 -Version <ver>` | 产出 `artifacts\PerformixSetup.exe`（amd64 安装器，见下） |
 | `scripts\publish-release.ps1 -Version <ver> -NotesFile <file>` | 一条命令走完 §2 → §8（除 npm），`-DryRun` 只跑本地步骤 |
 
@@ -150,6 +153,41 @@ Release 资产算的 digest（sha256），没有就找同目录的 `Performix-wi
 没有时它会明说「跳过校验」而不是假装校验过。所以**重新打包 zip 就等于换了一份哈希**：清单、
 Release 资产、安装器读到的值必须来自同一次构建，不要只重传其中一个。
 
+### 2.1 可复现性：容器钉住了，内容没有（别拿本地哈希当准）
+
+同一个 commit，本机打出来的包和 CI 打出来的包**不是同一个文件**。0.1.0-alpha.2 的实测：
+
+| 构建位置 | 字节数 | sha256（前 8 位） |
+|---|---|---|
+| 本机 | 33490261 | `a8d5e3e7…` |
+| CI（GitHub runner） | 33489786 | `3d5048…` |
+
+`scripts\build-app-zip.ps1` 现在把 **zip 容器**钉死了：
+
+- 条目按相对路径做**序数排序**（`[StringComparer]::Ordinal`，不是 `Sort-Object` 的区域性排序——换台
+  机器/换个 locale，顺序就会变）；
+- 所有条目的时间戳固定成同一个值（1980-01-01 00:00，DOS 时间字段能表示的最小值）。之前每个条目带的是
+  文件自己的 `LastWriteTime`，光是这一项就足以让两次构建的字节不同；
+- 不写目录条目、外部属性固定为 0、压缩级别固定 `Optimal`。
+
+**内容**钉不住，所以哈希不跨机器：
+
+- **.NET SDK 补丁版本**：10.0.1xx 和 10.0.2xx 带的编译器和运行时包不同。CI 用 `actions/setup-dotnet`
+  的 `10.0.x`（当天解析到哪个算哪个），本机用装的那个或 `tools\dotnet-sdk\`。
+- **Windows App SDK 与整个 NuGet 还原图**：浮动版本、缓存状态、fallback 目录。
+- **pdb 里烧进去的源码绝对路径**：CI 的 `D:\a\Performix\Performix` 和本机路径长度不同，字节就不同。
+  上面那 475 字节的差就是这类因素造成的（没有逐字节归因，别把这句话当成精确结论）。
+- **`PublishReadyToRun` / PGO / ILLink**：任何一项都会换掉编译出来的代码。脚本目前不传，也别加。
+- MSBuild 节点复用、增量构建状态等「取决于这台机器之前跑过什么」的东西。
+
+由此定一条规则，别再自己骗自己：
+
+> **以 CI 构建的资产为准，本地构建仅用于验证。**
+> 本地跑出来的 sha256 **仅在本次构建有效**，不要拿它去填 `update.json`，也不要拿它和线上资产比。
+> `build-app-zip.ps1` 跑完会把这句话打印在 `REPRODUCIBILITY` 段里。
+
+要「本地验完再发」，验的是**行为**（能装、能起、更新页正常、换源正常），不是字节。
+
 ---
 
 ## 3. 算 sha256 / size（人手不许填）
@@ -168,6 +206,10 @@ $size = (Get-Item -LiteralPath $zip).Length
 ---
 
 ## 4. 生成 update.json
+
+`notes` 字段和 Release 正文是**同一份文本**，来源是 `CHANGELOG.md` 里对应版本那一节——由
+`scripts\get-release-notes.ps1` 抽出来（规则见 §5.1），找不到就退回一个短模板。**不要**再拿
+`git log --oneline` 堆 commit subject。
 
 ```powershell
 $tag     = 'v0.1.0-alpha.2'
@@ -245,6 +287,55 @@ gh release create $tag `
   → 客户端记 “release 不带 update.json”，继续找别的源。
 - `--prerelease` 与版本里的 `alpha/beta/rc` 保持一致；`stable` 版本的 tag 不带后缀。
 
+### 5.1 CI 发布（`v*` tag 触发 `.github\workflows\release.yml`）
+
+推一个 `v*` tag（或手动 `workflow_dispatch`）就跑完整条流水线：构建 → 测试 → 打包 → 安装器 →
+notes → `update.json` → 上传三个资产 → **把 CI 自己那份 `update.json` 提交回默认分支**。
+本地 `publish-release.ps1` 和 CI 用同一套门禁，区别只在「谁上传」和「谁提交清单」。
+
+#### notes 从 CHANGELOG.md 来
+
+- 来源：`scripts\get-release-notes.ps1`，取 `CHANGELOG.md` 里对应版本那一节（`## 0.1.0-alpha.2 — …`
+  这种标题；`## v0.1.0-alpha.2`、`## [0.1.0-alpha.2]` 也认）。这一节同时是 Release 正文和
+  `update.json` 的 `notes` 字段。
+- 找不到这一节时退回模板：版本 + 一句概要 + 指向 `CHANGELOG.md` 的链接。模板是英文的——那几个脚本
+  按约定是 UTF-8 无 BOM + 纯 ASCII，写中文在 Windows PowerShell 5.1 下会被当 ANSI 读坏。
+- **不再用 `git log --oneline`**：一串 commit subject 在 Release 页面上没法读，而且会把上一版就已经
+  发出去的东西再列一遍（0.1.0-alpha.2 的线上 notes 就是这么来的，还带着 bootstrap 那条）。
+- 本地 `scripts\publish-release.ps1` 在既没给 `-Notes` 也没给 `-NotesFile` 时走同一条规则，
+  两条路不会产出两种 notes。
+
+#### 发布后自动同步 `update.json`（0.1.0-alpha.2 踩过的坑）
+
+`gh-proxy` / `ghproxy.net` / jsDelivr 读的是**仓库默认分支**里的 `update.json`，不是 Release 资产。
+tag 触发 CI 后，CI 重新构建并 `--clobber` 上传了 zip，它生成的清单描述的是 CI 那份字节；仓库里那份
+还指着本地构建的包（`a8d5e3…` vs 线上 `3d5048…`）→ 走加速源的用户下载后校验失败。那次是手工提交修好的。
+
+现在流水线最后一个 step 自己收尾：
+
+- 用 `github-actions[bot]` 身份提交（`41898282+github-actions[bot]@users.noreply.github.com`）；
+- 只提交 `update.json`（非 alpha 通道是 `update-<channel>.json`），不碰别的文件；
+- 内容没变就不提交——幂等，重跑不会堆空提交；
+- commit message 带 `[skip ci]`（这个 workflow 只监听 tag 和手动触发，本来也回不到自己；标记是给
+  别的监听分支的 workflow 看的）；
+- `main` 在构建期间被推过的话，`fetch` + `rebase` 重试 3 次，不会因为一次非快进让整场发布失败；
+- 在 Release 建好之后才执行，上传失败不会留下「分支指向一个还不存在的资产」；
+- 权限就是现有的 `contents: write`。
+
+> 提交完成后 `gh-proxy` / jsDelivr 有缓存，要等一会儿才生效——§8 的源检查就是等这个。
+
+### 5.2 清单与线上资产对账（本地发布时）
+
+`scripts\publish-release.ps1` 上传完之后、提交清单之前，会先下载线上资产算一遍 sha256：
+
+- **和本次构建一致** → 继续。
+- **不一致**（同一个 tag 又跑过 CI，线上包被 `--clobber` 换掉了）→ **以线上为准**：用线上的
+  sha256/size 重写清单、`gh release upload --clobber` 把清单重传一遍，再把这份清单提交到默认分支。
+  本地那个包留在 `artifacts\` 里，但它已经不是清单指向的文件了，脚本会说明。
+- **下载不到** → 只警告，不重写；后面的回读步骤会把它变成硬失败。
+
+理由和 §5.1 一样：清单要描述用户**实际下载到的字节**，不是我们以为的字节。
+
 ## 6. 发布到 npm
 
 npm 包的作用是给 `npm-official` / `npmmirror` 两个源提供同一份清单。包本身不需要可执行，只需要
@@ -287,6 +378,10 @@ git add update.json
 git commit -m "release: update.json for $version"
 git push origin main
 ```
+
+> **CI 也会做这一步**：tag 触发时流水线最后一个 step 会把 CI 自己的清单提交到默认分支（§5.1）；
+> 本地脚本在提交前会先和线上资产对账（§5.2）。两条路都不要手工 `git commit` 一份来路不明的
+> `update.json`——那是 0.1.0-alpha.2 出问题的直接原因。
 
 验证三个代理源都能读到（应当逐条 200，且内容与本地一致）：
 
@@ -370,6 +465,10 @@ Start-Process (Join-Path $dir 'Performix.exe')
 
 - **清单写错但包没问题**：直接改仓库 `update.json` + 重新 `gh release upload --clobber`，客户端下次检查即可。
   已经装上旧包的机器不会再“降级”（客户端永不降级）。
+- **清单和线上包对不上**（加速源报 sha256 不符）：**以线上包为准**重写清单——`publish-release.ps1`
+  现在会自动这么做（§5.2）；手工做就是 `gh release download` 线上包 → 算 sha256/size → 改清单 →
+  `gh release upload --clobber update.json` → 同一份提交到 `main`。**不要**反过来「重传一个本地包」，
+  那正是 0.1.0-alpha.2 的坑。
 - **包本身有问题**：把 Release 标记成 draft / 删除资产，然后把仓库 `update.json` 改成指向上一版
   （或删掉 `assets`，让所有源都变成“清单不完整”），客户端会停在失败态而不是装坏包。
 - **npm 发错**：`npm unpublish performix@<version> --force`（72 小时内）或用 `npm deprecate` 标记。
@@ -384,4 +483,5 @@ Start-Process (Join-Path $dir 'Performix.exe')
 | 静默自动更新 | Performix 是提权 + 调硬件的托盘程序，后台替换重启会打断用户正在调的东西。更新页是唯一入口。 |
 | 强制更新 / 灰度百分比 | 清单格式里没有这类字段，也不打算加（没有能远程“搞死”用户的信任链）。 |
 | 增量补丁 | 包才几十 MB，双清单 + 补丁链的复杂度与失败率不合算。 |
+| 跨机器 bit-for-bit 可复现构建 | 做不到（§2.1）：SDK 版本、NuGet 还原图、pdb 里的绝对路径都会改字节。zip 容器已经确定化，内容没有。规则是「以 CI 构建的资产为准，本地构建仅用于验证」，不假装做到了。 |
 | --update-feed / --update-auto / --update-no-install 用于正式分发 | 那是验证开关：带 `--update-feed` 启动时安装会被自动抑制，永远不会替换真实安装。 |

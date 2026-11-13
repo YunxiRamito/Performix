@@ -242,7 +242,8 @@ Performix Setup {version} — 安装 Performix（Windows x64）
   --help               显示这段说明并退出
 
 选项：
-  --version <tag>      安装指定版本（GitHub release tag，例如 v0.1.0-alpha.2）；默认装 latest
+  --version <tag>      安装指定版本（GitHub release tag，例如 v0.1.0-alpha.2；开头的 v 可省略）；默认装最新版
+                       （最新版包含预发布版本：正式版 > beta > alpha）
   --offline <zip>      用本地 zip 安装，不联网（CI 自测 / 内网部署）
   --dir <path>         覆盖安装根目录（默认 %LOCALAPPDATA%\Performix\app；版本仍装成子目录）
   --no-launch          装完不启动 Performix
