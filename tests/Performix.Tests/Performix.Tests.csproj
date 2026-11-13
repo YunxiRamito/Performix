@@ -20,4 +20,122 @@
     <ProjectReference Include="..\..\src\Performix.Legacy.Wpf\Performix.Legacy.Wpf.csproj" />
   </ItemGroup>
 
+  <!--
+    Update-path regression tests.
+
+    The update client, the manifest parser, the version comparison, the options parser and the
+    page state machine live in Performix.App (a WinUI 3 net10.0-windows10.0.22621.0 project,
+    which this net10.0-windows test project cannot project-reference). They are dependency-free
+    by design — no WinUI, no hardware, no static state; the HTTP handler and the temp directory
+    are injected — so they are compiled in as linked sources, the same technique the WinUI app
+    uses for the WPF ViewModels. Nothing here touches the network: the tests supply a fake
+    HttpMessageHandler.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Performix.App\Services\UpdateClient.cs" Link="Update\UpdateClient.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\SemanticVersion.cs" Link="Update\SemanticVersion.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateManifest.cs" Link="Update\UpdateManifest.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateOptions.cs" Link="Update\UpdateOptions.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateSources.cs" Link="Update\UpdateSources.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateStateMachine.cs" Link="Update\UpdateStateMachine.cs" />
+    <!--
+      UpdateInstaller resolves scripts\invoke-update.ps1 and starts it; it has no WinUI dependency,
+      but it logs through ShellLog, so that file is linked with it (ShellLog is dependency-free and
+      disabled unless the shell enables it).
+    -->
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateInstaller.cs" Link="Update\UpdateInstaller.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateLaunchNotice.cs" Link="Update\UpdateLaunchNotice.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateExitGuard.cs" Link="Update\UpdateExitGuard.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\ShellLog.cs" Link="Update\ShellLog.cs" />
+
+    <!--
+      Page-lifetime regression coverage: the shell caches page instances, so Loaded/Unloaded
+      repeat while IPredexPage.Vm is assigned once. PropertyChangedSubscription owns that
+      attach/detach bookkeeping and is dependency-free (System.ComponentModel only), so the
+      fans-page re-subscription bug is testable without a WinUI host.
+    -->
+    <Compile Include="..\..\src\Performix.App\Services\PropertyChangedSubscription.cs" Link="Pages\PropertyChangedSubscription.cs" />
+
+    <!--
+      Shell animation guards + WM_DEVICECHANGE decoding. Both are pure (no WinUI, no HWND, no
+      dispatcher): the hide-completion / size-tick generation tokens and the "is this a HID
+      interface arrival?" predicate are the parts that were wrong, so they are compiled in here
+      and tested directly instead of being duplicated in a test double.
+    -->
+    <Compile Include="..\..\src\Performix.App\Shell\ShellAnimationGuards.cs" Link="Shell\ShellAnimationGuards.cs" />
+    <Compile Include="..\..\src\Performix.App\Shell\BrandMarkTint.cs" Link="Shell\BrandMarkTint.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\DeviceChangeRouter.cs" Link="Services\DeviceChangeRouter.cs" />
+
+    <!--
+      Personalisation → Interface: the four home-panel switches. UiPanelState.cs is the whole
+      persistence contract (the flags + the "UiPanels" member of appearance.json) and is
+      dependency-free on purpose — no WinUI, no static state — so the round-trip is testable
+      without a shell host. AppearanceService is the only other consumer and it is WinUI-only,
+      which is exactly why the serialization does not live in there.
+    -->
+    <Compile Include="..\..\src\Performix.App\Services\UiPanelState.cs" Link="Services\UiPanelState.cs" />
+
+    <!--
+      Services page vendor detection. OemBrand.cs is the pure half (manufacturer string → brand,
+      brand → service tokens, protected services); the Windows half lives in OemBrandProbe.cs and
+      is exercised by the app, not here. Linking the pure half is what makes "ASUS is spelled
+      ASUS" and "an ASUS machine never matches Acer services" a regression test instead of a
+      screenshot nobody re-reads.
+    -->
+    <Compile Include="..\..\src\Performix.App\Services\OemBrand.cs" Link="Services\OemBrand.cs" />
+
+    <!--
+      Services page switch guard (UX review #2). The confirmation in front of the batch OEM
+      service stop is a pure three-way decision (echo / safe direction / destructive direction);
+      keeping it here means "does one click still stop fourteen services without asking?" is a
+      test, not something to re-check by hand on a real machine.
+    -->
+    <Compile Include="..\..\src\Performix.App\Services\ServicesToggleGuard.cs" Link="Services\ServicesToggleGuard.cs" />
+
+    <!--
+      DELIBERATELY NOT LINKED — UpdateCli.cs and UpdateSession.cs.
+
+      Both reach the WinUI App layer and cannot compile here:
+        * UpdateCheckService.InformationalVersion / .DisplayVersion — the App's
+          Services\UpdateCheckService.cs (it imports Microsoft.UI.Dispatching, so it is not
+          linkable either). The Performix.Legacy.Wpf assembly has a same-named type in the same
+          namespace without those members, so the linked sources bind to it and fail with CS0117.
+        * UpdateSession also calls App.CurrentShell?.QuitApplication() (Microsoft.UI.Xaml.App),
+          and both use the App-internal ShellLog.
+      Making them compile would need fake App/UpdateCheckService shims compiled into the test
+      assembly, which would shadow the real types (CS0436) and let App-side drift go unnoticed —
+      a worse signal than an honest gap. Coverage there stays with the check-update acceptance runs.
+    -->
+  </ItemGroup>
+
+  <!--
+    Installer regression tests (src\Performix.Installer).
+
+    The installer is a self-contained, trimmed, single-file console exe on net10.0 — a TFM this
+    net10.0-windows test project can reference, but the installer's csproj carries a RID and a
+    publish profile that make a ProjectReference awkward (it would drag SelfContained/win-x64 into
+    the test build). The pieces that can be wrong without anyone noticing are pure by design — no
+    console, no HTTP, no file system — so they are linked in as sources, exactly like the
+    UpdateClient sources above. Nothing here touches the network: the parsers take strings, the
+    range math takes numbers, and the directory scanner takes an injected directory lister.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Performix.Installer\InstallerCommandLine.cs" Link="Installer\InstallerCommandLine.cs" />
+    <Compile Include="..\..\src\Performix.Installer\InstallerPaths.cs" Link="Installer\InstallerPaths.cs" />
+    <Compile Include="..\..\src\Performix.Installer\RuntimeProbe.cs" Link="Installer\RuntimeProbe.cs" />
+    <Compile Include="..\..\src\Performix.Installer\RuntimeReleaseMetadata.cs" Link="Installer\RuntimeReleaseMetadata.cs" />
+    <Compile Include="..\..\src\Performix.Installer\SegmentMath.cs" Link="Installer\SegmentMath.cs" />
+    <Compile Include="..\..\src\Performix.Installer\Checksums.cs" Link="Installer\Checksums.cs" />
+    <Compile Include="..\..\src\Performix.Installer\GitHubRelease.cs" Link="Installer\GitHubRelease.cs" />
+    <Compile Include="..\..\src\Performix.Installer\PackageExtractor.cs" Link="Installer\PackageExtractor.cs" />
+  </ItemGroup>
+
+  <!--
+    DELIBERATELY NOT LINKED — the I/O halves of the installer (Program, ConsoleUi,
+    SegmentedDownloader, RuntimeInstaller, AppInstaller, ShortcutService, Uninstaller).
+    They need a real console, a real HTTP socket, or COM; their logic is the orchestration
+    around the tested pieces, and the acceptance run (PerformixSetup with the help switch, and
+    scripts\build-installer.ps1 producing the exe) is what covers them.
+  -->
+
 </Project>

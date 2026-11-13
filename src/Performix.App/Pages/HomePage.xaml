@@ -160,7 +160,7 @@
           </StackPanel>
         </Grid>
 
-        <Border Height="1" Background="{StaticResource BorderSubtleBrush}"/>
+        <Border x:Name="RuleStatusBar" Height="1" Background="{StaticResource BorderSubtleBrush}"/>
 
         <!-- GPU MODE header (H1): the row had no label and no visible selection. Left title
              12 SemiBold Secondary, right current mode 11 Muted, 6 DIP to the tiles (the
@@ -245,7 +245,7 @@
           </Button>
         </Grid>
 
-        <Border Height="1" Background="{StaticResource BorderSubtleBrush}"/>
+        <Border x:Name="RuleGpuBar" Height="1" Background="{StaticResource BorderSubtleBrush}"/>
 
         <!-- DISPLAY: auto-refresh chip + refresh rate + current display mode -->
         <Grid x:Name="DisplayGroup" Height="30" ColumnSpacing="{StaticResource GapTight}">
@@ -278,7 +278,7 @@
                      ToolTipService.ToolTip="{x:Bind ViewModel.ActiveGpuDisplayMode, Mode=OneWay}"/>
         </Grid>
 
-        <Border Height="1" Background="{StaticResource BorderSubtleBrush}"/>
+        <Border x:Name="RuleRefreshRateBar" Height="1" Background="{StaticResource BorderSubtleBrush}"/>
 
         <!-- ENTRY POINTS: every remaining page is one click away in the same window.
              5 equal columns with the same spacing as the mode row, so both 5-up rows
@@ -292,7 +292,7 @@
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
 
-          <Button Grid.Column="0" Style="{StaticResource EntryButtonStyle}" Height="28"
+          <Button x:Name="EntryLighting" Grid.Column="0" Style="{StaticResource EntryButtonStyle}" Height="28"
                   Click="LightingShortcut_Click"
                   AutomationProperties.AutomationId="OpenLighting"
                   AutomationProperties.Name="{x:Bind local:Loc.T('Lighting')}"
@@ -306,7 +306,7 @@
             </StackPanel>
           </Button>
 
-          <Button Grid.Column="1" Style="{StaticResource EntryButtonStyle}" Height="28"
+          <Button x:Name="EntryOverlay" Grid.Column="1" Style="{StaticResource EntryButtonStyle}" Height="28"
                   Click="OverlayShortcut_Click"
                   AutomationProperties.AutomationId="OpenOverlay"
                   AutomationProperties.Name="{x:Bind local:Loc.T('Overlay')}"
@@ -320,7 +320,7 @@
             </StackPanel>
           </Button>
 
-          <Button Grid.Column="2" Style="{StaticResource EntryButtonStyle}" Height="28"
+          <Button x:Name="EntryFans" Grid.Column="2" Style="{StaticResource EntryButtonStyle}" Height="28"
                   Click="FansShortcut_Click"
                   AutomationProperties.AutomationId="OpenFans"
                   AutomationProperties.Name="{x:Bind local:Loc.T('Fans')}"
@@ -334,7 +334,7 @@
             </StackPanel>
           </Button>
 
-          <Button Grid.Column="3" Style="{StaticResource EntryButtonStyle}" Height="28"
+          <Button x:Name="EntryTuning" Grid.Column="3" Style="{StaticResource EntryButtonStyle}" Height="28"
                   Click="TuningShortcut_Click"
                   AutomationProperties.AutomationId="OpenTuning"
                   AutomationProperties.Name="{x:Bind local:Loc.T('Tuning')}"

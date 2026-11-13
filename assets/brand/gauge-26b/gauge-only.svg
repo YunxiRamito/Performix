@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="gaugeTitle">
+  <title id="gaugeTitle">Speedometer gauge</title>
+  <!--
+    Gauge only, traced from the generated icon: a three-quarter circular arc open at the
+    bottom, plus one blunt needle. No background. Strokes are currentColor, so set `color`
+    on the container (or swap in #FFFFFF) to recolour it.
+  -->
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 279.7 649.8 A 258.9 258.9 0 1 1 743.9 649.5" stroke-width="55"/>
+    <line x1="469" y1="583" x2="648.5" y2="408.8" stroke-width="78.7"/>
+  </g>
+</svg>

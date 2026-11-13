@@ -1,24 +1,30 @@
-// Settings — directory page code-behind (IA phase 1).
+// Settings — directory page code-behind (settings IA v2, compact icon rows).
 //
-// This page owns no setting any more: every row is navigation. The old value/switch logic
-// (language, startup, Acer services, battery limit, USB charging, power profiles) moved to
-// Pages\GeneralPage and Pages\PowerPage unchanged; Theme stays on Pages\ThemePage.
+// This page owns no setting: every row is navigation. The old flat settings surface has been
+// split into the six sub-pages the design asks for (General / Personalisation / Tuning /
+// Services / Update / About). The old Power page is gone — its content is the
+// "Power Configuration" group of GeneralPage — and the old Updates-and-About page is now two
+// entries (Update, About).
 //
-// The only data this page renders is the version string in the page header and the subtitle
-// of the Updates and About row. Both are static reads — no ViewModel, no hardware access.
+// The only data this page renders is the version string in the page header. It is a static
+// read — no ViewModel, no hardware access, and deliberately no per-row subtitle: the design
+// review asked for icon + name only.
 //
-// Navigation is the shell's job (SHELL-CONTRACT §2): App.CurrentShell.NavigateTo(tag). Back
-// from any of the four sub-pages returns here through ShellWindow.PageBackTargets.
+// Navigation is the shell's job (SHELL-CONTRACT §2): App.CurrentShell.NavigateTo(tag). Back from
+// any of the five settings sub-pages returns here through ShellWindow.PageBackTargets; Tuning is
+// not in that table because it is also reachable from the home panel, so its back target is the
+// hop that opened it (Settings from here, Home from the panel).
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Predex.WinUI.Services;
 using PreySense.Frontend.Services;
 using System;
 
 namespace Predex.WinUI.Pages
 {
     /// <summary>
-    /// Settings directory: General / Power Profiles / Theme / Updates and About.
+    /// Settings directory: General / Personalisation / Tuning / Services / Update / About.
     /// </summary>
     public sealed partial class SettingsPage : Page
     {
@@ -30,18 +36,19 @@ namespace Predex.WinUI.Pages
         }
 
         /// <summary>
-        /// Full version string, e.g. "v0.1.0-alpha.1", shown at the top right of this page
-        /// and repeated on the Updates and About page (the shell title bar is reserved for
-        /// the wordmark and the CPU/GPU temperatures — UI-ARCH §2.8).
+        /// Full version string, e.g. "版本 v0.1.0-alpha.1", shown at the top right of this page.
+        /// UX review item 12: the bare string had no label, so a reader could not tell whether
+        /// "v0.1.0-alpha.1" was the version or some other identifier.
         /// </summary>
-        public string VersionText => UpdateCheckService.DisplayVersion;
+        public string VersionText
+            => LocalizationService.Format("Version {0}", UpdateCheckService.DisplayVersion);
 
         /// <summary>
-        /// The Updates and About row's subtitle: version plus the real update state. The feed
-        /// is not configured yet, so this says so instead of inventing a check result.
+        /// The Services entry names the machine's vendor ("ASUS services" / "Acer services" /
+        /// the neutral "Vendor services"), from the same ServicesTitle helper the shell title bar
+        /// uses, so the two never disagree.
         /// </summary>
-        public string MetaSubtitle
-            => LocalizationService.Format("Version {0} · no update feed configured", VersionText);
+        public string ServicesLabel => ServicesTitle.For(OemBrandProbe.Detect());
 
         // ── Lifetime ─────────────────────────────────────────────────────────────
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -56,18 +63,23 @@ namespace Predex.WinUI.Pages
         private void OnLanguageChanged(object? sender, EventArgs e) => Bindings.Update();
 
         // ── Directory rows ───────────────────────────────────────────────────────
-        // Navigation only: the shell switches pages and each sub-page has its own back target
-        // (ShellWindow.PageBackTargets sends all four back to Settings).
+        // Navigation only: the shell switches pages, each sub-page has its own back target.
         private void OpenGeneral_Click(object sender, RoutedEventArgs e)
             => App.CurrentShell?.NavigateTo("General");
 
-        private void OpenPower_Click(object sender, RoutedEventArgs e)
-            => App.CurrentShell?.NavigateTo("Power");
+        private void OpenPersonalize_Click(object sender, RoutedEventArgs e)
+            => App.CurrentShell?.NavigateTo("Personalize");
 
-        private void OpenTheme_Click(object sender, RoutedEventArgs e)
-            => App.CurrentShell?.NavigateTo("Theme");
+        private void OpenTuning_Click(object sender, RoutedEventArgs e)
+            => App.CurrentShell?.NavigateTo("Tuning");
 
-        private void OpenMeta_Click(object sender, RoutedEventArgs e)
-            => App.CurrentShell?.NavigateTo("Meta");
+        private void OpenServices_Click(object sender, RoutedEventArgs e)
+            => App.CurrentShell?.NavigateTo("Services");
+
+        private void OpenUpdate_Click(object sender, RoutedEventArgs e)
+            => App.CurrentShell?.NavigateTo("Update");
+
+        private void OpenAbout_Click(object sender, RoutedEventArgs e)
+            => App.CurrentShell?.NavigateTo("About");
     }
 }

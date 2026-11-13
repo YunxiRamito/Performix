@@ -1,0 +1,266 @@
+name: release
+
+# Performix release pipeline.
+#
+# Windows-only: the product targets net10.0-windows / net10.0-windows10.0.22621.0 with WinUI 3
+# (Windows App SDK). There is no Linux/macOS build, and the runner needs a real Windows SDK.
+#
+# ---------------------------------------------------------------------------------------------
+# RISK - a token WITHOUT the `workflow` scope cannot push this file.
+# ---------------------------------------------------------------------------------------------
+# The token configured in this checkout today is a `gh` OAuth token whose scopes are
+# `gist, read:org, repo` - it does NOT carry `workflow`. GitHub rejects any push that creates or
+# edits a file under .github/workflows/ with:
+#
+#     refusing to allow an OAuth App to create or update workflow
+#     `.github/workflows/release.yml` without `workflow` scope
+#
+# So this workflow is written to be correct, but it cannot be pushed with the current credential.
+# Fix on the publishing machine, then push again:
+#     gh auth refresh -h github.com -s workflow        # add the scope to the OAuth token
+# or use a fine-grained PAT / GitHub App token that includes "Workflows: write".
+# Background: commit 5170e5c "ci: park workflow as example until token has workflow scope",
+# which is why docs/ci-build.yml.example still carries a .example suffix.
+#
+# ---------------------------------------------------------------------------------------------
+# What one run does (same order as docs/RELEASE.md, which is the contract):
+#   1. restore + build + test the solution
+#   2. scripts/build-app-zip.ps1   -> artifacts/Performix-win-x64.zip
+#      scripts/build-installer.ps1 -> artifacts/PerformixSetup.exe
+#   3. scripts/publish-release.ps1 -DryRun -SkipBuild -> artifacts/update.json
+#      (dry run on purpose: the script computes the real sha256/size and writes the manifest,
+#       but performs the remote steps itself only on a workstation, where it can also commit
+#       update.json to the default branch. See the note at the bottom of this file.)
+#   4. upload the three assets to the GitHub Release.
+#
+# The release always carries THREE assets: the app zip, the amd64 installer and update.json.
+# Only the zip is listed in the manifest's assets[]; the installer is not an update asset.
+#
+# Triggers:
+#   - push of a v* tag  (the normal path; the tag name is the version, minus the leading v)
+#   - workflow_dispatch (re-run a build, publish a version, or a dry run that uploads nothing)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the leading v, e.g. 0.1.0-alpha.3'
+        required: true
+        type: string
+      channel:
+        description: 'Manifest channel (alpha is the only channel published today)'
+        required: false
+        default: alpha
+        type: choice
+        options:
+          - alpha
+          - beta
+          - stable
+      dry_run:
+        description: 'Build and generate update.json, but do not tag or upload a release'
+        required: false
+        default: false
+        type: boolean
+
+# softprops/action-gh-release needs this to create the release and upload assets.
+permissions:
+  contents: write
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+
+concurrency:
+  # One release per tag; a queued re-run waits instead of racing the upload.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: release notes are diffed against the previous v* tag.
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Show SDK
+        run: dotnet --info
+
+      - name: Resolve version, channel and tag
+        id: ver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+        run: |
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
+            $version = "$env:INPUT_VERSION".Trim()
+            $channel = "$env:INPUT_CHANNEL".Trim()
+          } else {
+            # Tag push: v0.1.0-alpha.3 -> version 0.1.0-alpha.3, channel from the suffix.
+            $version = "$env:REF_NAME" -replace '^v', ''
+            if ($version -match '-alpha') { $channel = 'alpha' }
+            elseif ($version -match '-beta') { $channel = 'beta' }
+            else { $channel = 'stable' }
+          }
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw 'version is empty: push a v* tag or pass the version input'
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.]+)?$') {
+            throw "version '$version' is not x.y.z or x.y.z-suffix"
+          }
+          if ($channel -notin @('alpha', 'beta', 'stable')) {
+            throw "channel '$channel' must be alpha, beta or stable"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "channel=$channel" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          Write-Host "version=$version channel=$channel tag=v$version"
+
+      - name: Restore
+        run: dotnet restore Performix.slnx
+
+      - name: Build solution
+        run: dotnet build Performix.slnx -c Release --no-restore
+
+      - name: Test
+        run: >
+          dotnet test tests/Performix.Tests/Performix.Tests.csproj -c Release --no-build
+          --logger "trx;LogFileName=performix-tests.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/performix-tests.trx'
+          if-no-files-found: ignore
+
+      # x64 Release publish with -p:Version injected; writes artifacts/Performix-win-x64.zip with
+      # Performix.exe at the zip root, and prints the sha256/size the manifest needs.
+      - name: Build app package
+        run: >
+          pwsh -NoProfile -File scripts/build-app-zip.ps1 -Version '${{ steps.ver.outputs.version }}'
+
+      # artifacts/PerformixSetup.exe. scripts/build-installer.ps1 is owned by the installer
+      # workstream; this step only relies on the documented output path.
+      - name: Build installer
+        run: |
+          if (-not (Test-Path scripts/build-installer.ps1)) {
+            throw 'scripts/build-installer.ps1 is missing; it owns artifacts/PerformixSetup.exe'
+          }
+          $installerArgs = @()
+          $declared = (Get-Command ./scripts/build-installer.ps1).Parameters.Keys
+          if ($declared -contains 'Version') { $installerArgs += @('-Version', '${{ steps.ver.outputs.version }}') }
+          pwsh -NoProfile -File ./scripts/build-installer.ps1 @installerArgs
+          if ($LASTEXITCODE -ne 0) { throw "build-installer.ps1 failed (exit $LASTEXITCODE)" }
+          if (-not (Test-Path artifacts/PerformixSetup.exe)) {
+            throw 'the installer build did not produce artifacts/PerformixSetup.exe'
+          }
+
+      - name: Generate release notes
+        run: |
+          $version = '${{ steps.ver.outputs.version }}'
+          $tag = '${{ steps.ver.outputs.tag }}'
+          $lines = @("Performix $version", '')
+          $previous = $null
+          $previous = (git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>$null)
+          if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($previous)) {
+            $lines += "Changes since ${previous}:"
+            $lines += @(git log --pretty=format:'- %s' "$previous..HEAD")
+          } else {
+            $lines += 'Changes:'
+            $lines += @(git log --pretty=format:'- %s' -n 30)
+          }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'artifacts/release-notes.md'), (($lines -join "`n") + "`n"), $utf8)
+
+      # The manifest is written by the same script a local release uses, so field rules
+      # (schema=1, channel, publishedAt, notes, assets[] with name/url/sizeBytes/sha256, UTF-8
+      # without BOM) cannot drift between CI and a workstation. -SkipBuild: the artifacts above
+      # are final. -DryRun: stop before tag/push/upload - this workflow does those itself.
+      - name: Generate update.json
+        run: |
+          pwsh -NoProfile -File scripts/publish-release.ps1 `
+            -Version '${{ steps.ver.outputs.version }}' `
+            -Channel '${{ steps.ver.outputs.channel }}' `
+            -Tag '${{ steps.ver.outputs.tag }}' `
+            -NotesFile artifacts/release-notes.md `
+            -SkipBuild `
+            -DryRun
+          if ($LASTEXITCODE -ne 0) { throw "publish-release.ps1 failed (exit $LASTEXITCODE)" }
+          $channel = '${{ steps.ver.outputs.channel }}'
+          if ($channel -eq 'alpha') { $manifest = 'artifacts/update.json' }
+          else { $manifest = "artifacts/update-$channel.json" }
+          if (-not (Test-Path $manifest)) { throw "the manifest was not written: $manifest" }
+          Get-Content $manifest -Raw
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: performix-${{ steps.ver.outputs.version }}
+          path: |
+            artifacts/Performix-win-x64.zip
+            artifacts/PerformixSetup.exe
+            artifacts/update*.json
+          if-no-files-found: error
+
+      - name: Tag the commit
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        run: |
+          $tag = '${{ steps.ver.outputs.tag }}'
+          git rev-parse -q --verify "refs/tags/$tag" | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            git tag $tag
+            git push origin $tag
+            Write-Host "pushed tag $tag"
+          } else {
+            Write-Host "tag $tag already exists"
+          }
+
+      # Three assets, exactly: app zip + amd64 installer + manifest. --prerelease follows the
+      # channel (alpha/beta/rc are pre-releases, stable is not) - docs/RELEASE.md section 5.
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Performix ${{ steps.ver.outputs.version }}
+          body_path: artifacts/release-notes.md
+          prerelease: ${{ steps.ver.outputs.channel != 'stable' }}
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/Performix-win-x64.zip
+            artifacts/PerformixSetup.exe
+            artifacts/update*.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# ---------------------------------------------------------------------------------------------
+# NOT done here, on purpose:
+#   * Committing update.json to the default branch. The three GitHub proxies (gh-proxy,
+#     ghproxy.net, jsDelivr) read that copy, so a release is not fully live until it lands -
+#     but a CI job pushing to main bypasses review and conflicts with concurrent work.
+#     Run scripts/publish-release.ps1 from a workstation for the full sequence (it commits the
+#     manifest), or commit the downloaded update.json by hand after the release.
+#   * npm publish (docs/RELEASE.md section 6) - needs a registry credential.
+#   * The one real-machine update test (docs/RELEASE.md section 8.3).
+# ---------------------------------------------------------------------------------------------

@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Update — settings sub-page (settings IA v2). Split out of the old "Updates and About" page: the
+  update surface and the About facts are now two settings sections, so each one can be reached
+  directly from the directory.
+
+  It renders the real state machine from Services\Update\UpdateSession:
+
+    Not checked · Checking · Up to date · Update available · Needs manual install ·
+    Downloading · Verifying · Ready to install · Update failed · No release yet
+
+  It shows the running version, the channel, the source that actually answered, the new-version
+  line (version + package size), the publish time, the release notes (scrollable, 240 DIP cap),
+  the download progress (percent + bar + bytes + speed + remaining) and, on failure, one
+  localized sentence naming the button the user should press. The technical detail (the SHA-256
+  pair) is shortened into a tooltip and written in full to the log, never pasted into the card.
+
+  NO FAKE PROGRESS: when the transfer does not declare Content-Length the bar goes
+  indeterminate, the percent label hides and only the received byte count is shown; there is no
+  percentage computed from the manifest size and no invented "up to date"
+  (Services\Update\UpdateStateMachine.cs pins those invariants).
+
+  THEMING: every brush on this page is a {ThemeResource} (PageTextPrimaryBrush /
+  PageTextSecondaryBrush / DangerTextBrush / ProgressTrackBrush live in the theme dictionaries in
+  Styles\Resources.xaml). The accent button and the progress fill use the
+  AccentFillColorDefaultBrush / TextOnAccentFillColorPrimaryBrush family that AppearanceService
+  re-derives from the active accent. There is no StaticResource brush left on this page.
+
+  Facts come from the update session, never from a hard-coded string. Text goes through Loc.T().
+-->
+<Page
+    x:Class="Predex.WinUI.Pages.UpdatePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:Predex.WinUI"
+    mc:Ignorable="d"
+    Background="Transparent"
+    IsTabStop="True" UseSystemFocusVisuals="False"
+    AutomationProperties.AutomationId="PageUpdate"
+    AutomationProperties.Name="{x:Bind local:Loc.T('Update')}">
+
+  <Page.Resources>
+    <!-- Read-only value column (right-aligned, tabular): one style for every fact row. -->
+    <Style x:Key="MetaValueStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
+      <Setter Property="Foreground" Value="{ThemeResource PageTextPrimaryBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="TextAlignment" Value="Right"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
+    </Style>
+
+    <!-- Muted variant for a state instead of a fact ("Not checked"). -->
+    <Style x:Key="MetaStateStyle" TargetType="TextBlock" BasedOn="{StaticResource MetaValueStyle}">
+      <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+      <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
+    </Style>
+
+    <!-- Failed state: the status word itself has to read as a fault, not as another fact
+         (P1 status semantics). "No release yet" stays on MetaStateStyle: a young project
+         without a release is normal, and ADR-0003 D5 keeps the red colour for real faults. -->
+    <Style x:Key="MetaStateDangerStyle" TargetType="TextBlock" BasedOn="{StaticResource MetaStateStyle}">
+      <Setter Property="Foreground" Value="{ThemeResource DangerTextBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <!-- Failure body: one localized sentence + the button to press. Selectable because the
+         user may want to copy the sentence into a bug report. -->
+    <Style x:Key="FailureDangerStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+      <Setter Property="Foreground" Value="{ThemeResource DangerTextBrush}"/>
+      <Setter Property="IsTextSelectionEnabled" Value="True"/>
+    </Style>
+
+    <Style x:Key="FailureMutedStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextStyle}">
+      <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
+      <Setter Property="IsTextSelectionEnabled" Value="True"/>
+    </Style>
+  </Page.Resources>
+
+  <ScrollViewer Padding="12,12,12,12"
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Stretch">
+
+      <!-- ═══════════════════════════════════════════════════════════════════
+           UPDATE (real state machine: check → download → verify → install)
+           ═══════════════════════════════════════════════════════════════════ -->
+      <Border Style="{StaticResource CardStyle}">
+        <StackPanel Spacing="0">
+
+          <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Update')}"
+                       Style="{StaticResource SectionTitleStyle}"/>
+            <TextBlock Grid.Column="1" x:Name="TxtUpdateState"
+                       Style="{StaticResource MetaStateStyle}"
+                       AutomationProperties.AutomationId="TxtUpdateState"
+                       AutomationProperties.LiveSetting="Polite"/>
+          </Grid>
+
+          <!-- What the check found: "新版本 v0.1.0-alpha.2 · 34.5 MB". The size comes from the
+               manifest asset, so the user knows what the download costs before pressing it. -->
+          <TextBlock x:Name="TxtUpdateTarget"
+                     Margin="0,4,0,4"
+                     Style="{StaticResource BodyTextStyle}"
+                     Visibility="Collapsed"
+                     AutomationProperties.AutomationId="TxtUpdateTarget"/>
+
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Current version')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+            <TextBlock Grid.Column="1" x:Name="TxtUpdateVersion"
+                       Style="{StaticResource MetaValueStyle}"
+                       AutomationProperties.AutomationId="TxtUpdateVersion"/>
+          </Grid>
+
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Channel')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+            <TextBlock Grid.Column="1" x:Name="TxtUpdateChannel"
+                       Style="{StaticResource MetaValueStyle}"
+                       AutomationProperties.AutomationId="TxtUpdateChannel"/>
+          </Grid>
+
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Update source')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+            <TextBlock Grid.Column="1" x:Name="TxtUpdateSource"
+                       Style="{StaticResource MetaValueStyle}"
+                       AutomationProperties.AutomationId="TxtUpdateSource"/>
+          </Grid>
+
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('New version publish time')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+            <TextBlock Grid.Column="1" x:Name="TxtUpdatePublished"
+                       Style="{StaticResource MetaValueStyle}"
+                       AutomationProperties.AutomationId="TxtUpdatePublished"/>
+          </Grid>
+
+          <!-- Release notes: 240 DIP cap, scrolls when the feed sends a long changelog. -->
+          <TextBlock x:Name="TxtUpdateNotesHeader"
+                     Text="{x:Bind local:Loc.T('Update notes')}"
+                     Style="{StaticResource SettingHintStyle}"
+                     Margin="0,8,0,4"
+                     Visibility="Collapsed"
+                     AutomationProperties.AutomationId="TxtUpdateNotesHeader"/>
+          <ScrollViewer x:Name="NotesScroll"
+                        MaxHeight="240"
+                        VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled"
+                        Visibility="Collapsed"
+                        AutomationProperties.AutomationId="NotesScroll">
+            <TextBlock x:Name="TxtUpdateNotes"
+                       Style="{StaticResource BodyTextStyle}"
+                       IsTextSelectionEnabled="True"
+                       AutomationProperties.AutomationId="TxtUpdateNotes"/>
+          </ScrollViewer>
+
+          <!-- Download progress. 6 DIP bar, fill = accent, track = ProgressTrackBrush (one
+               clear step lighter than the fill); the percent label is the non-colour channel,
+               and it hides whenever the transfer did not declare a length. -->
+          <StackPanel x:Name="PnlUpdateProgress" Spacing="4" Margin="0,8,0,0" Visibility="Collapsed"
+                      AutomationProperties.AutomationId="PnlUpdateProgress">
+            <ProgressBar x:Name="PrgUpdate" Height="6" Minimum="0" Maximum="100" Value="0"
+                         CornerRadius="3"
+                         Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                         Background="{ThemeResource ProgressTrackBrush}"
+                         AutomationProperties.AutomationId="PrgUpdate"
+                         AutomationProperties.Name="{x:Bind local:Loc.T('Download progress')}"/>
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" x:Name="TxtUpdatePercent"
+                         Style="{StaticResource CardValueTextStyle}"
+                         Visibility="Collapsed"
+                         AutomationProperties.AutomationId="TxtUpdatePercent"/>
+              <TextBlock Grid.Column="1" x:Name="TxtUpdateProgress" TextWrapping="Wrap"
+                         Style="{StaticResource StatusTextStyle}"
+                         AutomationProperties.AutomationId="TxtUpdateProgress"
+                         AutomationProperties.LiveSetting="Polite"/>
+            </Grid>
+          </StackPanel>
+
+          <!-- Failure reason. Muted for "no release yet" (a normal state of a young project),
+               danger colour only for a real fault (ADR-0003 D5). One sentence says what
+               happened and which button to press; the technical detail is the tooltip / log. -->
+          <TextBlock x:Name="TxtUpdateFailure"
+                     Style="{StaticResource FailureDangerStyle}"
+                     Margin="0,8,0,0"
+                     Visibility="Collapsed"
+                     AutomationProperties.AutomationId="TxtUpdateFailure"
+                     AutomationProperties.LiveSetting="Polite"/>
+
+          <!-- minVersion gate: a newer release exists but this build is too old for an in-place
+               update. Muted, not danger: nothing failed, the publisher simply requires a full
+               manual install. The primary button stays visible but inert (UpdateStateMachine
+               .CanDownload is false in this state), so this line is the only explanation the
+               user gets — hence the concrete version number inside the sentence. -->
+          <TextBlock x:Name="TxtUpdateBlockReason"
+                     Style="{StaticResource FailureMutedStyle}"
+                     Margin="0,8,0,0"
+                     Visibility="Collapsed"
+                     AutomationProperties.AutomationId="TxtUpdateBlockReason"
+                     AutomationProperties.LiveSetting="Polite"/>
+
+          <StackPanel Spacing="8" Margin="0,12,0,0">
+            <Button x:Name="BtnUpdatePrimary"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Click="UpdatePrimary_Click"
+                    AutomationProperties.AutomationId="BtnUpdatePrimary"/>
+            <Button x:Name="BtnUpdateSecondary"
+                    Style="{StaticResource OutlinedButtonStyle}"
+                    Visibility="Collapsed"
+                    Click="UpdateSecondary_Click"
+                    AutomationProperties.AutomationId="BtnUpdateSecondary"/>
+            <!-- Failure-only text button: the folder holds update-check.log and the full
+                 SHA-256 pair the card no longer prints. -->
+            <Button x:Name="BtnUpdateLogs"
+                    Background="Transparent" BorderThickness="0" Padding="0"
+                    MinHeight="0" HorizontalAlignment="Left"
+                    Visibility="Collapsed"
+                    Click="OpenUpdateLogs_Click"
+                    AutomationProperties.AutomationId="BtnUpdateLogs"
+                    AutomationProperties.Name="{x:Bind local:Loc.T('Open logs folder')}">
+              <TextBlock Text="{x:Bind local:Loc.T('Open logs folder')}"
+                         FontSize="{StaticResource FontSizeCaption}"
+                         Foreground="{ThemeResource PageTextPrimaryBrush}"
+                         TextDecorations="Underline"/>
+            </Button>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</Page>

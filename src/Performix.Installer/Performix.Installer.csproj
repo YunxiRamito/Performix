@@ -1,0 +1,111 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    PerformixSetup.exe — the Windows x64 installer.
+
+    Hard constraints that shaped this file (see docs below and README of the project):
+
+    * No GUI framework. The installer must run on a machine with NO .NET runtime at all, so the
+      whole point is a small, self-contained, trimmed console executable. UseWindowsForms /
+      UseWPF stay false; a WinForms/WPF dependency would drag the 80 MB+ desktop stack into the
+      installer and defeat the download-the-runtime step that exists precisely because the
+      target machine has nothing installed.
+    * TargetFramework is net10.0 (not net10.0-windows). net10.0-windows pulls the Windows-
+      specific ref pack and, with the WinUI/WPF targets, the WindowsDesktop framework reference —
+      exactly the assembly set we are trying to install, not to ship.
+    * SelfContained + PublishSingleFile + PublishTrimmed + EnableCompressionInSingleFile: one
+      double-clickable .exe, no SDK on the target machine, no loose .dll next to it.
+    * NativeAOT is deliberately NOT used: it needs a matching MSVC linker on the build machine,
+      which this repository cannot assume (the build machine may only have a portable SDK).
+    * Zero NuGet dependencies: BCL + P/Invoke only (COM IShellLink / IPersistFile for the .lnk
+      shortcut, advapi32 for the elevation check).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <AssemblyName>PerformixSetup</AssemblyName>
+    <RootNamespace>Performix.Installer</RootNamespace>
+    <Product>Performix Setup</Product>
+    <AssemblyTitle>Performix Setup</AssemblyTitle>
+    <Company>Performix</Company>
+    <Description>Installs the .NET 10 desktop runtime (if missing) and Performix itself.</Description>
+
+    <!-- No GUI stack: see the comment block above. -->
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWPF>false</UseWPF>
+
+    <!-- Single-file, self-contained, trimmed. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+
+    <!--
+      TrimMode=partial on purpose. "full" also trims *this* assembly, and the two things that
+      trimming removes first in an installer are the COM interop metadata behind IShellLink
+      (a [ComImport] interface that only fails at runtime, when the shortcut is created) and the
+      JsonDocument property names we read reflectively-ish by string. partial trims the framework
+      (where all the megabytes are) and leaves our own IL intact — the size difference is noise,
+      the failure mode it avoids is a silent "shortcut cannot be created" on a customer machine.
+    -->
+    <TrimMode>partial</TrimMode>
+
+    <!--
+      REQUIRED: the shortcut service activates CLSID_ShellLink and calls IShellLinkW through
+      built-in COM interop. Trimming turns that support off by default, and the failure is only
+      visible at run time — "Built-in COM has been disabled via a feature switch" — after the app
+      has already been extracted (the shortcut step is the last one). Kept on.
+    -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+
+    <!--
+      IL2026: "Built-in COM support is not trim compatible" — ILLink flags the CLSID activation
+      behind IShellLink because it cannot statically prove the COM class factory survives
+      trimming. The behaviour is verified in the acceptance run: install a package with the
+      published (trimmed, single-file) exe, then read the resulting .lnk back (target, working
+      directory, icon) — it points at the right executable with the right "start in" folder.
+      The shortcut step is also non-fatal by design: a COM failure logs a warning and the install
+      still completes, so this can never strand a user with a broken install.
+    -->
+    <NoWarn>$(NoWarn);IL2026</NoWarn>
+
+    <!--
+      IL2026 ("Built-in COM support is not trim compatible") is emitted for the CLSID activation
+      behind IShellLink. It is a blanket warning about the COM activator, not about this call
+      site, and the behaviour is verified: the acceptance run installs a package and then reads
+      the resulting .lnk back (target, working directory, icon) with WScript.Shell. The shortcut
+      step is also non-fatal by design — if COM were unavailable, the install still completes and
+      the log says so.
+    -->
+    <NoWarn>$(NoWarn);IL2026</NoWarn>
+
+    <!-- Metadata trimming: no icu, no reflection-based JSON, no runtime resource lookup. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+    <EnableUnsafeBinaryFormatterSerialization>false</EnableUnsafeBinaryFormatterSerialization>
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    Engine-version guard: the installer boots on a machine without .NET, so the *published*
+    executable is the only thing that ever runs there; the SDK version used to build it is the
+    one recorded here for /? output and the build log.
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildSdk" Value="$(NETCoreSdkVersion)" />
+  </ItemGroup>
+
+</Project>

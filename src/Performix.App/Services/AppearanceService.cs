@@ -74,6 +74,10 @@ namespace Predex.WinUI.Services
             public string? WindowStyle { get; set; }
             public string? AccentMode { get; set; }
             public string? AccentColor { get; set; }
+            // The four Personalisation → Interface switches are NOT a member of this class on
+            // purpose: UiPanelState.cs owns the "UiPanels" member and reads/writes it inside the
+            // same file, so the flags have exactly one serialization path (the one the tests
+            // link). System.Text.Json ignores the member here when it deserializes the file.
         }
 
         private static readonly Color DefaultAccent = Color.FromArgb(0xFF, 0x3B, 0x82, 0xF6);
@@ -89,6 +93,14 @@ namespace Predex.WinUI.Services
         public static Color AccentColor { get; private set; } = DefaultAccent;
 
         /// <summary>
+        /// Visibility of the four hideable rows of the expanded home panel
+        /// (Personalisation → Interface). Held here rather than in a new store: appearance.json
+        /// is already the file that owns "how the shell looks", and preysense.json is the Core
+        /// config this stage must not grow a schema for.
+        /// </summary>
+        public static UiPanelVisibility UiPanels { get; private set; } = new();
+
+        /// <summary>
         /// True when %LOCALAPPDATA%\Predex\appearance.json existed at startup. It outranks the
         /// legacy preysense.json fields, so a user who picked "follow system" is not reset to
         /// dark on the next launch.
@@ -97,6 +109,21 @@ namespace Predex.WinUI.Services
 
         /// <summary>Raised after a theme change so tray menu colours etc. can follow.</summary>
         public static event EventHandler? ThemeChanged;
+
+        /// <summary>
+        /// Raised after the accent colour changed — including the live drag of the custom-colour
+        /// picker, which calls SetAccent with persist:false on every pointer move. Subscribers that
+        /// paint with the accent (the title-bar brand mark in Shell\AccentGlyphBrush.cs) must not
+        /// poll for it: the point of this event is that the change is visible without a restart.
+        /// </summary>
+        public static event EventHandler? AccentChanged;
+
+        /// <summary>
+        /// Raised after one of the four Interface switches changed. HomePage is the only
+        /// listener: it is the page that owns the rows, and it is rebuilt after every
+        /// hide-to-tray cycle, so it re-reads <see cref="UiPanels"/> on load anyway.
+        /// </summary>
+        public static event EventHandler? UiPanelsChanged;
 
         // ── Derived values ───────────────────────────────────────────────────────
         public static bool IsLightTheme =>
@@ -283,7 +310,43 @@ namespace Predex.WinUI.Services
             ShellLog.Write("appearance",
                 $"accent mode={mode} color=#{ToHex(AccentColor)} " +
                 $"AccentFillColorDefaultBrush/ToggleSwitchFillOn/SliderTrackValueFill updated (immediate)");
+            RaiseAccentChanged();
             if (persist) Persist();
+        }
+
+        // ── Interface switches (Personalisation → Interface) ─────────────────────
+        /// <summary>Is this home-panel row currently visible?</summary>
+        public static bool IsUiPanelVisible(UiPanel panel)
+        {
+            EnsureInitialized();
+            return UiPanels.Get(panel);
+        }
+
+        /// <summary>
+        /// Hides / shows one home-panel row. Applied immediately (HomePage listens), logged,
+        /// and persisted into the same appearance.json — no new file, no Core schema change.
+        /// </summary>
+        public static void SetUiPanel(UiPanel panel, bool visible)
+        {
+            EnsureInitialized();
+            if (UiPanels.Get(panel) == visible) return;
+
+            UiPanels.Set(panel, visible);
+            ShellLog.Write("appearance", $"ui panel {panel}={visible} (immediate, persisted)");
+            Persist();
+            UiPanelsChanged?.Invoke(null, EventArgs.Empty);
+        }
+
+        /// <summary>All four back on: the panel a fresh profile starts with.</summary>
+        public static void ShowAllUiPanels()
+        {
+            EnsureInitialized();
+            if (UiPanels.AllVisible) return;
+
+            UiPanels = new UiPanelVisibility();
+            ShellLog.Write("appearance", "ui panels reset to all visible");
+            Persist();
+            UiPanelsChanged?.Invoke(null, EventArgs.Empty);
         }
 
         // ── Apply paths ──────────────────────────────────────────────────────────
@@ -405,6 +468,29 @@ namespace Predex.WinUI.Services
             bool light = IsLightTheme;
             foreach ((string key, Color dark, Color lightColor) in TokenBrushes)
                 SetBrushColor(key, light ? lightColor : dark);
+            // The selected tile fill is a tint OF THE CARD, so a theme switch has to re-composite it.
+            ApplyTileSelectedFill();
+        }
+
+        /// <summary>
+        /// The selected tile surface: the accent at 15 % pre-composited over the card colour.
+        ///
+        /// It used to be <c>WithAlpha(accent, 0x26)</c> — a TRANSPARENT brush, so the blended
+        /// result depended on whatever sat behind the tile (the card, but also the acrylic / mica
+        /// composition surface). On a dark backdrop the tile went dark while its label stayed
+        /// near-black, and the selected mode's label vanished: exactly the "选中态文字看不清"
+        /// finding in UX review item 11. Compositing the tint here keeps the same appearance and
+        /// makes the fill opaque, so the label contrast is deterministic for every accent:
+        ///   Light theme: label #1A1A1E on the tinted card  → ≥ 12:1
+        ///   Dark theme:  label #F2F2F2 on the tinted card  → ≥  9:1
+        /// (WCAG AA body text target: 4.5:1.)
+        /// </summary>
+        private static void ApplyTileSelectedFill()
+        {
+            Color card = IsLightTheme
+                ? Color.FromArgb(0xFF, 0xFB, 0xFB, 0xFB)   // CardBackgroundFillColorDefaultBrush, Light
+                : Color.FromArgb(0xFF, 0x2B, 0x2B, 0x2B);   // … Dark
+            SetBrushColor("TileSelectedFillBrush", Blend(card, AccentColor, 0.15));
         }
 
         // ── Accent family ────────────────────────────────────────────────────────
@@ -413,8 +499,9 @@ namespace Predex.WinUI.Services
             Color accent = AccentColor;
             SetColorResource("Accent", accent);
             SetBrushColor("AccentBrush", accent);
-            // The selected tile fill is the same 15 % accent tint the home tiles use.
-            SetBrushColor("TileSelectedFillBrush", WithAlpha(accent, 0x26));
+            // The selected tile fill is the same 15 % accent tint the home tiles use, composited
+            // over the card so it stays opaque (see ApplyTileSelectedFill).
+            ApplyTileSelectedFill();
 
             ResourceDictionary? design = DesignDictionary();
             if (design is null) return;
@@ -559,8 +646,13 @@ namespace Predex.WinUI.Services
             {
                 if (!File.Exists(StatePath)) return;
                 HasPersistedState = true;
-                PersistedAppearance? state = JsonSerializer.Deserialize<PersistedAppearance>(
-                    File.ReadAllText(StatePath));
+                string json = File.ReadAllText(StatePath);
+
+                // The Interface switches are read first: a file that only carries "UiPanels" is
+                // still a valid state file for them, even if every other member is missing.
+                UiPanels = UiPanelDocument.Read(json);
+
+                PersistedAppearance? state = JsonSerializer.Deserialize<PersistedAppearance>(json);
                 if (state is null) return;
 
                 if (Enum.TryParse(state.Theme, ignoreCase: true, out AppearanceTheme theme)) Theme = theme;
@@ -615,6 +707,9 @@ namespace Predex.WinUI.Services
                     AccentMode = AccentMode.ToString(),
                     AccentColor = "#" + ToHex(AccentColor),
                 }, new JsonSerializerOptions { WriteIndented = true });
+                // The Interface switches ride in the same document (UiPanelState.cs owns the
+                // "UiPanels" member), so the look and the panel layout are one state file.
+                json = UiPanelDocument.Write(json, UiPanels);
                 File.WriteAllText(StatePath, json);
                 ShellLog.Write("appearance", $"state saved → {StatePath}");
             }
@@ -653,6 +748,8 @@ namespace Predex.WinUI.Services
         }
 
         private static void RaiseThemeChanged() => ThemeChanged?.Invoke(null, EventArgs.Empty);
+
+        private static void RaiseAccentChanged() => AccentChanged?.Invoke(null, EventArgs.Empty);
 
         private static Color Blend(Color from, Color to, double amount)
         {

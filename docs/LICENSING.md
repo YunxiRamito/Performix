@@ -52,10 +52,12 @@ Performix。Performix 不做静态链接、IL 合并或混淆，也不阻止该�
 
 旧仓库里所有 Predator 爪形标志（`app\branding\predex-logo.png`、`app\branding\predex.ico`、
 `Assets\appicon.ico`、`Assets\predator-mark.png`、WPF 的 `predex.ico` / `appicon.svg`）
-**都没有搬进来**。当前 `assets/branding/performix-logo.png`、`assets/branding/performix.ico`、
-`src/Performix.App/Assets/appicon.ico`、`src/Performix.App/Assets/performix-mark.png` 是
-脚本生成的几何占位图（圆角方块 + 字母 P），与 Acer 视觉标识无关。
-替换为原创图标前，不得把它们当成正式品牌素材发布。
+**都没有搬进来**。当前在用的 `src/Performix.App/Assets/appicon.ico`、
+`src/Performix.App/Assets/performix-mark.png`、`src/Performix.Legacy.Wpf/appicon.ico`
+与 `assets/brand/performix*` 都是**自绘的码表图标**：蓝色超椭圆底 + 白色码表弧与指针，
+由 `assets/brand/build-icons.py` 从母版 `assets/brand/gauge-26b/performix-icon-4k.png` 生成，
+与 Acer 视觉标识无关。`assets/branding/performix-logo.png`、`assets/branding/performix.ico`
+是上一代的几何占位图（圆角方块 + 字母 P），只留作历史对照，构建不再引用。
 
 「Predator」「Acer Predator Sense」「PSSvc」等字样仅用于**指代被替换的 OEM 产品/服务**（合理提及），
 不代表任何背书或商标授权。**GPL-3.0 §7 明确不授予商标权**，改用 GPL 不改变这一条。
@@ -99,7 +101,7 @@ Performix。Performix 不做静态链接、IL 合并或混淆，也不阻止该�
 - [x] `LICENSE` 是 GPL-3.0 全文 + 项目声明，且 PreySense MIT 署名保留
 - [x] `LICENSES/PreySense-MIT.txt`、`LICENSES/GHelper-GPL-3.0.txt` 存在
 - [x] `GHelperFanCurve.cs` 收录，头部来源注释未删，`THIRD-PARTY-NOTICES.md` 写明派生关系
-- [ ] `assets/branding/` 与 `src/*/Assets/` 里没有 OEM 商标图形（当前是占位图）
+- [ ] `assets/branding/` 与 `src/*/Assets/` 里没有 OEM 商标图形（现役图标是自绘码表，见 `assets/brand/build-icons.py`）
 - [ ] 没有 `decompiled/`、`*_strings*`、`*_types.txt` 之类的逆向产物
 - [ ] 没有第三方字体、图标集的未授权副本（Segoe 字体只引用不打包）
 - [ ] `third_party/` 下的许可原文与实际依赖版本一致

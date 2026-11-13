@@ -86,8 +86,9 @@ namespace Predex.WinUI.Pages
         // apostrophe, and these are full sentences that belong to the localization table)
         // ─────────────────────────────────────────────────────────────────────────
 
-        public string PageSubtitle =>
-            Loc.T("Per-mode CPU scheduling, GPU clock offsets and the fan entry.");
+        // The page subtitle was removed with the rest of the settings description text
+        // (docs\UI-DESIGN-RULES.md §7): the shell title bar already names the page. The strings
+        // below are not visible prose — they are the reasons a control is disabled, so they stay.
 
         /// <summary>Reason text for every capability that needs the kernel driver.</summary>
         public string DriverLockedTooltip =>
@@ -218,15 +219,29 @@ namespace Predex.WinUI.Pages
             if (_vm is null) Vm = App.CurrentShell?.ViewModel;      // host did not assign it
             if (_vm is not null) _vm.PropertyChanged += OnVmPropertyChanged;
             ReloadFromVm();
+            StartLiveStamp();
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             if (_vm is not null) _vm.PropertyChanged -= OnVmPropertyChanged;
+            StopLiveStamp();
         }
 
         private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            // A changed reading is freshness evidence too (the snapshot event can be missed while
+            // the page is being rebuilt), and it re-renders the freshness line.
+            if (e.PropertyName is nameof(MainViewModel.CpuTemperatureText)
+                or nameof(MainViewModel.GpuTemperatureText)
+                or nameof(MainViewModel.CpuFanText)
+                or nameof(MainViewModel.GpuFanText))
+            {
+                _lastTelemetryAt = DateTimeOffset.Now;
+                RefreshLiveStamp();
+                return;
+            }
+
             // The page edits the active mode, so a mode switch re-seeds every block.
             if (e.PropertyName is nameof(MainViewModel.ActivePowerMode)
                 or nameof(MainViewModel.GpuClockTuningState)
@@ -563,6 +578,107 @@ namespace Predex.WinUI.Pages
             StatusText.Text = message;
             StatusText.Foreground = new SolidColorBrush(success ? Colors.LightGreen : Colors.OrangeRed);
         }
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // Live-data freshness (UX review item 15)
+        //
+        // The four numbers in the status card came from the shared telemetry pipeline and
+        // carried no age, so a stalled read looked exactly like a live one. The page now keeps
+        // the time of the last real sample (TelemetryCoordinator.SnapshotAvailable, the same
+        // source the ViewModel reads) and rewrites one line every second:
+        //
+        //   Updated 1 s ago                              fresh
+        //   Last update 34 s ago · data may be stale      the pipeline stopped answering
+        //   No live data: the sensor read failed.         the snapshot itself was invalid
+        //
+        // A failed read also already renders "—" in place of the number (TelemetryText), so the
+        // card never shows a stale value as if it were current.
+        // ─────────────────────────────────────────────────────────────────────────
+        private const int StaleAfterSeconds = 5;
+
+        private DateTimeOffset _lastTelemetryAt;
+        private bool _telemetryInvalid;
+        private Microsoft.UI.Dispatching.DispatcherQueueTimer? _liveStampTimer;
+
+        private void StartLiveStamp()
+        {
+            _lastTelemetryAt = DateTimeOffset.Now;
+            _telemetryInvalid = AllTelemetryMissing();
+            RefreshLiveStamp();
+
+            PreySense.Core.Services.TelemetryCoordinator.SnapshotAvailable -= OnTelemetrySnapshot;
+            PreySense.Core.Services.TelemetryCoordinator.SnapshotAvailable += OnTelemetrySnapshot;
+
+            _liveStampTimer ??= DispatcherQueue.CreateTimer();
+            _liveStampTimer.Interval = TimeSpan.FromSeconds(1);
+            _liveStampTimer.Tick -= OnLiveStampTick;
+            _liveStampTimer.Tick += OnLiveStampTick;
+            _liveStampTimer.Start();
+        }
+
+        private void StopLiveStamp()
+        {
+            PreySense.Core.Services.TelemetryCoordinator.SnapshotAvailable -= OnTelemetrySnapshot;
+            if (_liveStampTimer is { } timer)
+            {
+                timer.Tick -= OnLiveStampTick;
+                timer.Stop();
+            }
+        }
+
+        /// <summary>Worker thread: record the sample time and let the UI thread redraw the line.</summary>
+        private void OnTelemetrySnapshot(PreySense.Core.Services.TelemetrySnapshot snapshot)
+        {
+            bool invalid = !snapshot.IsValid;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _lastTelemetryAt = DateTimeOffset.Now;
+                _telemetryInvalid = invalid;
+                RefreshLiveStamp();
+            });
+        }
+
+        private void OnLiveStampTick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+            => RefreshLiveStamp();
+
+        private void RefreshLiveStamp()
+        {
+            if (TxtLiveStamp is null) return;
+
+            if (_telemetryInvalid || AllTelemetryMissing())
+            {
+                TxtLiveStamp.Text = Loc.T("No live data: the sensor read failed.");
+                TxtLiveStamp.Foreground = Brush("DangerTextBrush");
+                return;
+            }
+
+            int age = (int)Math.Max(0, Math.Round((DateTimeOffset.Now - _lastTelemetryAt).TotalSeconds));
+            if (age > StaleAfterSeconds)
+            {
+                TxtLiveStamp.Text = PreySense.Frontend.Services.LocalizationService.Format(
+                    "Last update {0} s ago · data may be stale", age);
+                TxtLiveStamp.Foreground = Brush("PageTextSecondaryBrush");
+                return;
+            }
+
+            TxtLiveStamp.Text = age <= 2
+                ? Loc.T("Updated just now")
+                : PreySense.Frontend.Services.LocalizationService.Format("Updated {0} s ago", age);
+            TxtLiveStamp.Foreground = Brush("TextMutedBrush");
+        }
+
+        private bool AllTelemetryMissing()
+            => IsMissing(_vm?.CpuTemperatureText) && IsMissing(_vm?.GpuTemperatureText)
+               && IsMissing(_vm?.CpuFanText) && IsMissing(_vm?.GpuFanText);
+
+        private static bool IsMissing(string? text)
+            => string.IsNullOrWhiteSpace(text) || text == "N/A";
+
+        private static Brush Brush(string key)
+            => Application.Current?.Resources.TryGetValue(key, out object? value) == true &&
+               value is Brush brush
+                ? brush
+                : new SolidColorBrush(Colors.Transparent);
 
         private static double Clamp(double value, double minimum, double maximum) =>
             double.IsNaN(value) ? minimum : Math.Clamp(value, minimum, maximum);

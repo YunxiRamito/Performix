@@ -45,6 +45,11 @@
           "description": "True if Acer background services are stopped and disabled.",
           "title": "Acer Services Debloated"
         },
+        "RunOnStartup": {
+          "type": ["boolean", "null"],
+          "description": "The user's own answer to the Run on Startup switch. Null means never answered, which makes the app register its logon task once on first run; false is kept forever so the task is never recreated.",
+          "title": "Run on Startup"
+        },
         "HardwareTuningEnabled": {
           "type": "boolean",
           "description": "Enables optional driver-based tuning controls; this is not a measured hardware state.",

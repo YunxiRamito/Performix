@@ -2,6 +2,7 @@ using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
+using Predex.WinUI.Services;
 using PreySense.Frontend.ViewModels;
 using System;
 using System.ComponentModel;
@@ -37,6 +38,14 @@ namespace Predex.WinUI.Pages
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             UpdateGpuTileLayout();
 
+            // Personalisation → Interface: four switches hide four rows of this panel.
+            // Subscribed here (not in the constructor) because the shell drops the whole page
+            // tree when the window hides to the tray, so this page is rebuilt and re-reads the
+            // persisted flags on every show.
+            Predex.WinUI.Services.AppearanceService.UiPanelsChanged -= OnUiPanelsChanged;
+            Predex.WinUI.Services.AppearanceService.UiPanelsChanged += OnUiPanelsChanged;
+            ApplyInterfacePanels();
+
             // --trace evidence for the integration pass: GPU mux state is read on a background
             // task, so "no tile selected" can simply mean "state not known yet / DDS unavailable"
             // rather than a broken binding. Log whatever the ViewModel actually has at load.
@@ -46,7 +55,51 @@ namespace Predex.WinUI.Pages
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
-            => ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        {
+            ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            Predex.WinUI.Services.AppearanceService.UiPanelsChanged -= OnUiPanelsChanged;
+        }
+
+        // ── Personalisation → Interface (the four panel switches) ────────────────
+        private void OnUiPanelsChanged(object? sender, EventArgs e) => ApplyInterfacePanels();
+
+        /// <summary>
+        /// Shows / hides the four hideable rows. The Settings entry of the widget row is
+        /// deliberately not part of WidgetBar: it is the only way into Settings, so hiding it
+        /// would strand the user (see Services\UiPanelState.cs).
+        /// </summary>
+        private void ApplyInterfacePanels()
+        {
+            bool status = Predex.WinUI.Services.AppearanceService.IsUiPanelVisible(
+                Predex.WinUI.Services.UiPanel.StatusBar);
+            bool gpu = Predex.WinUI.Services.AppearanceService.IsUiPanelVisible(
+                Predex.WinUI.Services.UiPanel.GpuBar);
+            bool refreshRate = Predex.WinUI.Services.AppearanceService.IsUiPanelVisible(
+                Predex.WinUI.Services.UiPanel.RefreshRateBar);
+            bool widgets = Predex.WinUI.Services.AppearanceService.IsUiPanelVisible(
+                Predex.WinUI.Services.UiPanel.WidgetBar);
+
+            SetRowVisible(TelemetryRow, status);
+            SetRowVisible(RuleStatusBar, status);
+
+            SetRowVisible(GpuHeaderRow, gpu);
+            SetRowVisible(GpuGroup, gpu);
+            SetRowVisible(RuleGpuBar, gpu);
+
+            SetRowVisible(DisplayGroup, refreshRate);
+            SetRowVisible(RuleRefreshRateBar, refreshRate);
+
+            SetRowVisible(EntryLighting, widgets);
+            SetRowVisible(EntryOverlay, widgets);
+            SetRowVisible(EntryFans, widgets);
+            SetRowVisible(EntryTuning, widgets);
+
+            Predex.WinUI.Services.ShellLog.Write("home",
+                $"interface panels statusBar={status} gpuBar={gpu} refreshRateBar={refreshRate} widgetBar={widgets}");
+        }
+
+        private static void SetRowVisible(FrameworkElement row, bool visible)
+            => row.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
 
         // ── Density state ────────────────────────────────────────────────────────
         public bool IsExpanded => _isExpanded;

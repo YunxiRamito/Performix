@@ -26,6 +26,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Predex.WinUI.Controls;
+using Predex.WinUI.Services;
 using PreySense.Core.Services;
 using PreySense.Frontend.Services;
 using PreySense.Frontend.ViewModels;
@@ -47,6 +48,14 @@ namespace Predex.WinUI.Pages
 
         private MainViewModel? _vm;
 
+        /// <summary>
+        /// The live CpuFanText / GpuFanText subscription. The shell caches the page instance, so
+        /// Loaded / Unloaded repeat on the same object while <see cref="Vm"/> is assigned only
+        /// once — subscribing inside this setter alone left the page deaf after the first return
+        /// (RPM frozen on re-entry). Loaded now re-attaches unconditionally; see OnLoaded.
+        /// </summary>
+        private readonly PropertyChangedSubscription _vmSubscription = new();
+
         /// <summary>Assigned by the shell before the page is shown (page contract).</summary>
         public MainViewModel? Vm
         {
@@ -54,9 +63,8 @@ namespace Predex.WinUI.Pages
             set
             {
                 if (ReferenceEquals(_vm, value)) return;
-                if (_vm is not null) _vm.PropertyChanged -= OnVmPropertyChanged;
                 _vm = value;
-                if (_vm is not null) _vm.PropertyChanged += OnVmPropertyChanged;
+                _vmSubscription.Attach(_vm, OnVmPropertyChanged);
                 RaiseFanTexts();
             }
         }
@@ -152,7 +160,14 @@ namespace Predex.WinUI.Pages
         {
             // The shell assigns Vm before showing the page; if it is late (design-time / bare host)
             // fall back to the shell's single ViewModel rather than constructing a second one.
-            Vm ??= TryGetShellViewModel();
+            // Note: assigning through Vm (not `Vm ??= ...`) so the setter still runs when empty.
+            if (_vm is null) Vm = TryGetShellViewModel();
+
+            // The shell caches page instances (ShellWindow._pages), so this runs again on every
+            // re-entry while the Vm setter does not. Re-subscribe here, idempotently: without
+            // this the fan RPM readout keeps the values from before the page was unloaded.
+            _vmSubscription.Attach(_vm, OnVmPropertyChanged);
+
             if (Vm is null)
             {
                 // No ViewModel: keep the page inert but honest — editor greyed out, no fake data.
@@ -182,7 +197,7 @@ namespace Predex.WinUI.Pages
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             _autoApplyTimer?.Stop();
-            if (_vm is not null) _vm.PropertyChanged -= OnVmPropertyChanged;
+            _vmSubscription.Detach();
         }
 
         private static MainViewModel? TryGetShellViewModel()

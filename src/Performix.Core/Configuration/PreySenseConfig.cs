@@ -70,6 +70,15 @@ namespace PreySense.Core.Configuration
         /// <summary>Whether Acer OEM background services are debloated (stopped and disabled).</summary>
         public bool AcerServicesDebloated { get; set; } = false;
 
+        /// <summary>
+        /// The saved answer to the "Run on Startup" switch. Null means the user has never
+        /// answered, which is the only case where startup registers the logon task by itself
+        /// (first-run default). An explicit false is permanent: the task is deleted and never
+        /// recreated behind the user's back.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? RunOnStartup { get; set; }
+
         /// <summary>Whether hardware tuning controls are enabled.</summary>
         public bool HardwareTuningEnabled { get; set; } = false;
     }

@@ -1,5 +1,9 @@
 """Geometric Performix icon generator: Python + Pillow + numpy, no AI images.
 
+这是上一代几何图标的生成器（圆角方块 + 字母 P，仅从程序内几何量生成），
+现役图标见 build-icons.py —— 它从 4K 母版 assets/brand/gauge-26b/performix-icon-4k.png
+重采样出全部产物，两者不要混用。
+
 Run: python -B generate-icon.py
 All files are saved beside this script. No source image is traced or sampled.
 """

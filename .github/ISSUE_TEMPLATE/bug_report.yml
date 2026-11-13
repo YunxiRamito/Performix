@@ -1,0 +1,134 @@
+name: 适配反馈 / 问题反馈
+description: 机型不在适配列表里,或者用着有问题,又或者一切正常想告诉我们,都可以在这里填写
+title: "[适配反馈] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        谢谢你来反馈。每台笔记本控制风扇、灯效的方式都不一样,每个机型都要靠真机实测,你的信息很有帮助。
+
+        不确定怎么填的地方,看输入框下面的提示,或者留空也行。**日志和截图发出来之前,请先看一眼内容,不要带上账号、序列号等个人信息。**
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 你想反馈什么
+      options:
+        - 用着有问题
+        - 我的机型不在适配列表里,想让你们适配
+        - 我的机型用起来一切正常(适配反馈)
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: 机型全称
+      description: 按 `Win` + `R`,输入 `msinfo32` 后回车,看「系统型号」。
+      placeholder: 例如 Acer Predator PH317-55
+    validations:
+      required: true
+
+  - type: input
+    id: bios
+    attributes:
+      label: BIOS 版本
+      description: 在 `msinfo32` 同一个窗口里,看「BIOS 版本/日期」。
+      placeholder: 例如 V1.14
+    validations:
+      required: false
+
+  - type: input
+    id: hardware
+    attributes:
+      label: 处理器和显卡
+      description: 打开任务管理器,在「性能」页里查看。
+      placeholder: 例如 Intel i9-11900H / RTX 3070 Laptop
+    validations:
+      required: false
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows 版本
+      description: 按 `Win` + `R`,输入 `winver` 后回车。
+      placeholder: 例如 Windows 11 23H2(22631.xxxx)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Performix 版本
+      description: 程序里的更新页会显示。
+      placeholder: 例如 v0.1.0-alpha.1
+    validations:
+      required: true
+
+  - type: input
+    id: vendor-app
+    attributes:
+      label: 原厂控制中心
+      description: 机器自带的控制软件叫什么、什么版本。没有装也请写明。
+      placeholder: 例如 PredatorSense 3.0.3196,或者「没有装」
+    validations:
+      required: false
+
+  - type: dropdown
+    id: feature
+    attributes:
+      label: 涉及哪项功能
+      description: 可以多选。一切正常的话,选你试过的功能。
+      multiple: true
+      options:
+        - 风扇
+        - 性能模式
+        - 键盘灯效
+        - 屏幕刷新率
+        - 托盘图标或悬浮窗
+        - 更新
+        - 其它
+    validations:
+      required: false
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 出了什么问题,或者哪些功能正常
+      description: 你点了什么,期望发生什么,实际发生了什么。一切正常的话,写上哪些功能可用就行。
+      placeholder: |
+        例如:我把性能模式切到「火力全开」,期望风扇转速升高,
+        但转速没有变化,界面上显示的模式是对的。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 一步一步写下你是怎么操作的,别人照着做能看到同样的问题。没有问题的话可以留空。
+      placeholder: |
+        1. 打开 Performix
+        2. 点「性能模式」
+        3. 选择「火力全开」
+        4. 看风扇转速
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: |
+        程序所在文件夹里扩展名为 `.log` 的文件内容。更新出问题的话,再附上 `%LOCALAPPDATA%\Performix\logs\update.log`。
+        可以直接把文件拖进这个输入框上传,内容不长的话也可以粘贴进来。
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图或录屏
+      description: 可选,但很有帮助。可以直接把图片或视频拖进这个输入框。
+    validations:
+      required: false

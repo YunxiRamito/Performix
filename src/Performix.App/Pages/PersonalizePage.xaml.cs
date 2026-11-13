@@ -1,8 +1,12 @@
-// Theme page code-behind (theme-page task).
+// Personalisation page code-behind (settings IA v2; grew out of the old Theme page).
 //
-// The page is a thin view over Predex.WinUI.Services.AppearanceService: every selection is
-// applied immediately (no Apply button), logged to shell.log by the service, and persisted
-// to %LOCALAPPDATA%\Predex\appearance.json. Nothing here touches hardware or preysense.json.
+// Card 1 · Theme is a thin view over Predex.WinUI.Services.AppearanceService: every selection is
+// applied immediately (no Apply button), logged to shell.log by the service, and persisted to
+// %LOCALAPPDATA%\Predex\appearance.json. Nothing here touches hardware or preysense.json.
+//
+// Card 2 · Interface owns the four panel-row switches. They are stored by the same service
+// (AppearanceService.SetUiPanel → the "UiPanels" object of appearance.json) so no new config
+// file appears; HomePage subscribes to AppearanceService.UiPanelsChanged and hides the row.
 //
 // State → UI is pulled on Loaded and after every change (SyncFromState + Bindings.Update),
 // because the tile colours are x:Bind *style* bindings over page properties:
@@ -15,10 +19,8 @@
 // only exercised on older builds / blocked drivers.
 //
 // Custom accent = Microsoft.UI.Xaml.Controls.Primitives.ColorSpectrum (160 DIP ring) + a hex
-// TextBox + eight preset swatches. The primitive is what LightingPage's colour pickers use;
-// ColorSpectrum is a real WinUI 3 type (the earlier "absent from the winmd" note was a bad
-// search of the winmd string heap, not an API fact). The ColorPicker *control* is the one to
-// avoid here: its template pins the inner spectrum to 256 DIP, so 160 clips the ring.
+// TextBox + eight preset swatches. The ColorPicker *control* is the one to avoid here: its
+// template pins the inner spectrum to 256 DIP, so 160 would clip the ring.
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -30,11 +32,11 @@ using Windows.UI;
 
 namespace Predex.WinUI.Pages
 {
-    public sealed partial class ThemePage : Page
+    public sealed partial class PersonalizePage : Page
     {
         private bool _syncing;
 
-        public ThemePage()
+        public PersonalizePage()
         {
             InitializeComponent();
             Loaded += OnLoaded;
@@ -63,6 +65,46 @@ namespace Predex.WinUI.Pages
         {
             SyncFromState();
             Bindings.Update();   // OneTime text and tooltips
+        }
+
+        // ── Interface: the four panel-row switches ───────────────────────────────
+        private void UiStatusBar_Toggled(object sender, RoutedEventArgs e)
+            => ApplyPanelSwitch(UiPanel.StatusBar, sender);
+
+        private void UiGpuBar_Toggled(object sender, RoutedEventArgs e)
+            => ApplyPanelSwitch(UiPanel.GpuBar, sender);
+
+        private void UiRefreshRateBar_Toggled(object sender, RoutedEventArgs e)
+            => ApplyPanelSwitch(UiPanel.RefreshRateBar, sender);
+
+        private void UiWidgetBar_Toggled(object sender, RoutedEventArgs e)
+            => ApplyPanelSwitch(UiPanel.WidgetBar, sender);
+
+        /// <summary>
+        /// One write path for all four switches. A Toggled raised by SyncUiPanels is an echo,
+        /// not a click, so it is compared with the stored flag first (same rule as the General
+        /// page's switches). HomePage re-reads the flag through UiPanelsChanged.
+        /// </summary>
+        private void ApplyPanelSwitch(UiPanel panel, object sender)
+        {
+            if (_syncing) return;
+            if (sender is not ToggleSwitch toggle) return;
+            if (toggle.IsOn == AppearanceService.IsUiPanelVisible(panel)) return;
+
+            AppearanceService.SetUiPanel(panel, toggle.IsOn);
+        }
+
+        private void SyncUiPanels()
+        {
+            _syncing = true;
+            try
+            {
+                ChkUiStatusBar.IsOn = AppearanceService.IsUiPanelVisible(UiPanel.StatusBar);
+                ChkUiGpuBar.IsOn = AppearanceService.IsUiPanelVisible(UiPanel.GpuBar);
+                ChkUiRefreshRateBar.IsOn = AppearanceService.IsUiPanelVisible(UiPanel.RefreshRateBar);
+                ChkUiWidgetBar.IsOn = AppearanceService.IsUiPanelVisible(UiPanel.WidgetBar);
+            }
+            finally { _syncing = false; }
         }
 
         // ── Appearance mode ──────────────────────────────────────────────────────
@@ -111,6 +153,24 @@ namespace Predex.WinUI.Pages
             // "Custom" without a fresh pick keeps the current colour (e.g. back from System).
             AppearanceService.SetAccent(mode, AppearanceService.AccentColor);
             SyncFromState();
+
+            // UX review item 6: picking "Custom" opens the palette by itself. The 28 DIP swatch
+            // next to the combo is the shortcut, not the only way in — a first-time user should
+            // not have to discover it.
+            if (mode == AccentMode.Custom) OpenAccentFlyout();
+        }
+
+        /// <summary>Opens the accent flyout; a closed / not-yet-realised flyout is not an error.</summary>
+        private void OpenAccentFlyout()
+        {
+            try
+            {
+                if (BtnAccentSwatch?.Flyout is { } flyout) flyout.ShowAt(BtnAccentSwatch);
+            }
+            catch (Exception ex)
+            {
+                ShellLog.Write("appearance", $"accent flyout open failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         /// <summary>Preset swatches are shortcuts for the same custom colour the ring edits.</summary>
@@ -187,6 +247,7 @@ namespace Predex.WinUI.Pages
             }
             finally { _syncing = false; }
 
+            SyncUiPanels();
             UpdateAccentPreview();
             Bindings.Update();
         }

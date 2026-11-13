@@ -6,6 +6,8 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Predex.WinUI.Services;
+using PreySense.Core.Hardware;
 
 namespace PreySense.Frontend.Services
 {
@@ -162,6 +164,22 @@ namespace PreySense.Frontend.Services
                         { (_onLeftClick ?? _onOpen)?.Invoke(); return IntPtr.Zero; }
                     if (evt == WM_RBUTTONUP || evt == WM_CONTEXTMENU)
                         { ShowContextMenu(); return IntPtr.Zero; }
+                }
+
+                // HID hot-plug. HidDeviceArrivalWatcher registered the HID interface GUID on this
+                // same HWND, so the arrival/removal is posted here — and this hook is the only
+                // window procedure the WinUI app has. Fan it out to HidArrivalHub, which the
+                // lighting page and the power-on lighting apply already subscribe to. The
+                // message is deliberately NOT claimed: it falls through to the previous window
+                // procedure so nothing else loses it, and the tray branches above are untouched.
+                if (msg == DeviceChangeRouter.WmDeviceChange)
+                {
+                    if (DeviceChangeRouter.IsHidInterfaceChange(
+                            msg, wParam.ToInt32(), DeviceChangeRouter.ReadDeviceType(lParam)))
+                    {
+                        ShellLog.Write("hid", "WM_DEVICECHANGE: HID interface arrived/removed → HidArrivalHub.NotifyArrived()");
+                        HidArrivalHub.NotifyArrived();
+                    }
                 }
             }
             return CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);

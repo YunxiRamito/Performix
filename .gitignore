@@ -40,3 +40,9 @@ tools/
 
 # Local reports and research scratch
 outputs/
+
+# Build output
+artifacts/
+
+# Video scratch (puppeteer profiles, render output)
+promo-video/

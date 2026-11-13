@@ -72,7 +72,7 @@ namespace Predex.WinUI.Shell
             _rootVisual.StartAnimation("Opacity", fade);
         }
 
-        internal void PlayHideAnimation(Action? onComplete = null)
+        internal void PlayHideAnimation(Func<bool>? onComplete = null)
         {
             EnsureCompositor();
             float lift = 18f;
@@ -98,10 +98,14 @@ namespace Predex.WinUI.Shell
 
             batch.Completed += (_, _) =>
             {
+                // The shell decides first: when a show started inside these 160 ms it owns the
+                // visual now, and writing Offset/Opacity here would cancel the show animation
+                // on its first frame. False = the hide was superseded, drop everything.
+                if (onComplete is not null && !onComplete()) return;
+
                 // Reset so the next show starts from a clean visual state.
                 _rootVisual!.Offset = Vector3.Zero;
                 _rootVisual.Opacity = 1;
-                onComplete?.Invoke();
             };
         }
 

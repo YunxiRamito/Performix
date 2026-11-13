@@ -81,6 +81,7 @@
   <ItemGroup>
     <Compile Include="..\Performix.Legacy.Wpf\Services\UiText.cs"                    Link="Services\UiText.cs" />
     <Compile Include="..\Performix.Legacy.Wpf\Services\StartupTaskService.cs"        Link="Services\StartupTaskService.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\StartupPreferenceStore.cs"    Link="Services\StartupPreferenceStore.cs" />
     <Compile Include="..\Performix.Legacy.Wpf\Services\StartupDiagnostics.cs"        Link="Services\StartupDiagnostics.cs" />
     <Compile Include="..\Performix.Legacy.Wpf\Services\LatestBackgroundWorker.cs"    Link="Services\LatestBackgroundWorker.cs" />
     <Compile Include="..\Performix.Legacy.Wpf\Services\UiDebouncer.cs"               Link="Services\UiDebouncer.cs" />
@@ -97,9 +98,28 @@
     <Content Include="Assets\appicon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- R3: title-bar brand mark — generated placeholder (assets\branding\performix-logo.png),
-         not an OEM trademark asset. Replace with an original logo later. -->
+    <!-- R3: title-bar brand mark — the Performix speedometer glyph (arc + needle only, no
+         plate, #3B82F6) that assets\brand\build-icons.py extracts from the 4K master
+         assets\brand\gauge-26b\performix-icon-4k.png. Shown at 16x16, so the plate is
+         deliberately left out; the strokes alone stay legible at that size.
+         No OEM trademark artwork is involved. Rebuild both icon files with that script. -->
     <Content Include="Assets\performix-mark.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- The title-bar mark is TINTED at runtime now: the shell paints this white-on-transparent
+         glyph through Shell\AccentGlyphBrush.cs (CompositionMaskBrush) in the user's accent colour,
+         so one asset serves every accent instead of one PNG per colour. Source of truth is
+         assets\brand\performix-mark-mono.png (assets\brand\build-icons.py writes both this copy and
+         the brand one). performix-mark.png above is kept for the packaging / brand previews that
+         still want the flat #3B82F6 bitmap. -->
+    <Content Include="Assets\performix-mark-mono.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Update replacement script: a running exe cannot overwrite itself, so the verified zip
+         is applied by this script after Performix exits (Services\Update\UpdateInstaller.cs
+         resolves <output>\scripts\invoke-update.ps1 first). English-only, UTF-8 without BOM:
+         PowerShell 5.1 reads a BOM-less script as ANSI and would corrupt non-ASCII literals. -->
+    <Content Include="..\..\scripts\invoke-update.ps1" Link="scripts\invoke-update.ps1">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -28,9 +28,10 @@ App.CurrentShell?.NavigateTo("Tuning");   // key 见下表
   下次唤起时按上次的 nav key 重建当前页、再按它的内容量算窗口高度。所以页内未保存的临时草稿会丢，
   需要跨隐藏保留的状态请写进 `ShellUiState` 或 Core 配置。
 - 非 Home 页面会自动把壳切到展开态；标题栏变成「返回 + 页面名」。
-- **返回目标**（IA 第一阶段）：`ShellWindow.PageBackTargets` 是一张「页面 → 返回目标」表 ——
-  `General / Power / Theme / Meta → Settings`，其余页面按导航历史回上一跳（`Fans` 有首页 / 调校两个入口），
-  没有历史就回 `Home`。设置子页的跳转**不**入历史栈，表和栈因此不会互相漂移。
+- **返回目标**（设置 IA v2）：`ShellWindow.PageBackTargets` 是一张「页面 → 返回目标」表 ——
+  `General / Personalize / Services / Update / About → Settings`，其余页面按导航历史回上一跳
+  （`Fans` 有首页 / 调校两个入口；`Tuning` 既从首页小组件栏进、也从设置目录进，所以它不在表里，
+  返回目标取打开它的那一跳），没有历史就回 `Home`。设置子页的跳转**不**入历史栈，表和栈因此不会互相漂移。
 - 新增页面必须同时改 `ShellWindow.PageTypes` 与 `PageTitleKeys`（集成 agent 收口，S1 后不动）；
   设置子页还要在 `PageBackTargets` 里加一行。
 
@@ -41,11 +42,12 @@ App.CurrentShell?.NavigateTo("Tuning");   // key 见下表
 | `Fans` | `Pages.FansPage` | `FanCurveModeNames`（其余逻辑在页面代码后置） |
 | `Lighting` | `Pages.LightingPage` | `LightingDevices` `SelectedLightingDevice` `LightingDeviceModes` `LightingLedEditors` `DeviceLighting*` `KbdTimeoutSeconds` `RgbBrightness` `RgbSpeed` |
 | `Overlay` | `Pages.OverlayPage` | **不需要 ViewModel 属性**（S6 更正）：WPF `MetricsWindow` 的模型是 Core 的 `OverlayConfig`，页面代码后置经 `PreySense.Overlay.AppConfig` / `HardwareOverlayManager` 读写；原表里的 `OverlayMetricSlots` 在 WPF 的 `MainViewModel` 里不存在 |
-| `Settings` | `Pages.SettingsPage` | 目录页：无 ViewModel 属性，四行导航（`General` / `Power` / `Theme` / `Meta`） |
-| `General` | `Pages.GeneralPage` | `IsRunOnStartupEnabled` `CanChangeRunOnStartup` `ToggleRunOnStartupCommand` `IsAcerServicesEnabled` `ToggleAcerServicesDebloaterCommand` |
-| `Power` | `Pages.PowerPage` | `IsBatteryLimitEnabled` `ToggleBatteryLimitCommand` `UsbChargingCutoffPercent` `CanChangeUsbCharging` `UsbChargingStatus` `SourceProfileNames` `BatteryPowerModeIndex` `AcPowerModeIndex` `IsBatteryEnergySaverEnabled` |
-| `Theme` | `Pages.ThemePage` | 无 ViewModel 属性（`AppearanceService` 直接读写） |
-| `Meta` | `Pages.MiniMetaPage` | 无 ViewModel 属性（`Services\AboutInfo` + `UpdateCheckService`） |
+| `Settings` | `Pages.SettingsPage` | 目录页：无 ViewModel 属性，六行导航（`General` / `Personalize` / `Tuning` / `Services` / `Update` / `About`），行内只有图标 + 名称 |
+| `General` | `Pages.GeneralPage` | `IsRunOnStartupEnabled` `CanChangeRunOnStartup` `ToggleRunOnStartupCommand` `IsBatteryLimitEnabled` `BatteryLimitPercent` `ToggleBatteryLimitCommand` `UsbChargingCutoffPercent` `CanChangeUsbCharging` `UsbChargingStatus` `SourceProfileNames` `BatteryPowerModeIndex` `AcPowerModeIndex` `IsBatteryEnergySaverEnabled` |
+| `Personalize` | `Pages.PersonalizePage` | 无 ViewModel 属性（`AppearanceService` 直接读写：主题 + 四个界面开关） |
+| `Services` | `Pages.ServicesPage` | `IsAcerServicesEnabled` `ToggleAcerServicesDebloaterCommand`（品牌由 `Services\OemBrandProbe` 探测；只有 Acer 有停用后端） |
+| `Update` | `Pages.UpdatePage` | 无 ViewModel 属性（`Services\Update\UpdateSession` 状态机） |
+| `About` | `Pages.AboutPage` | 无 ViewModel 属性（`Services\AboutInfo` + `UpdateCheckService`） |
 
 ## 3. 页面骨架
 

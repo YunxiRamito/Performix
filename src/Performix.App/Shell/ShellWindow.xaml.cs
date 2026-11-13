@@ -39,9 +39,10 @@ namespace Predex.WinUI.Shell
     public sealed partial class ShellWindow : Window
     {
         // ── Page registry ────────────────────────────────────────────────────────
-        // Settings is a directory page now: General / Power / Theme / Meta are its sub-pages
-        // (IA phase 1, docs\design\UI-ARCH.md §1/§2). Every page must appear here and in
-        // PageTitleKeys, or NavigateTo silently drops the tag.
+        // Settings is a directory page with five sub-pages (settings IA v2): General /
+        // Personalisation / Services / Update / About, plus Tuning, which it shares with the
+        // home panel. Every page must appear here and in PageTitleKeys, or NavigateTo silently
+        // drops the tag.
         private static readonly Dictionary<string, Type> PageTypes = new(StringComparer.Ordinal)
         {
             ["Home"] = typeof(HomePage),
@@ -51,12 +52,16 @@ namespace Predex.WinUI.Shell
             ["Overlay"] = typeof(OverlayPage),
             ["Settings"] = typeof(SettingsPage),
             ["General"] = typeof(GeneralPage),
-            ["Power"] = typeof(PowerPage),
-            ["Theme"] = typeof(ThemePage),
-            ["Meta"] = typeof(MiniMetaPage),
+            ["Personalize"] = typeof(PersonalizePage),
+            ["Services"] = typeof(ServicesPage),
+            ["Update"] = typeof(UpdatePage),
+            ["About"] = typeof(AboutPage),
         };
 
-        // English source keys; resolved through LocalizationService on the way out.
+        // English source keys; resolved through LocalizationService on the way out. The Services
+        // page is the one title that is not a fixed word: it names the vendor the machine
+        // actually is ("ASUS services" / "Acer services" / "Vendor services"), composed by
+        // ServicesTitle so the title bar, the Settings entry and the page row cannot disagree.
         private static readonly Dictionary<string, string> PageTitleKeys = new(StringComparer.Ordinal)
         {
             ["Home"] = "Home",
@@ -66,23 +71,25 @@ namespace Predex.WinUI.Shell
             ["Overlay"] = "Overlay",
             ["Settings"] = "Settings",
             ["General"] = "General",
-            ["Power"] = "Power Profiles",
-            ["Theme"] = "Theme",
-            ["Meta"] = "Updates and About",
+            ["Personalize"] = "Personalisation",
+            ["Services"] = "Services",
+            ["Update"] = "Update",
+            ["About"] = "About",
         };
 
         // ── Back targets ─────────────────────────────────────────────────────────
-        // One row per page that has a fixed parent: the four Settings sub-pages return to
-        // Settings (the directory page). Every other page either comes from the history below
-        // (Fans has two entries: Home and Tuning) or returns Home. A map instead of a chain of
-        // ifs, and the authoritative source for the settings tree — the history never records
-        // a hop into a page listed here, so the two cannot fight (PAGES-TREE.md "返回行为").
+        // One row per page that has a fixed parent: the five Settings sub-pages return to
+        // Settings (the directory page). Tuning is deliberately absent — it is also opened from
+        // the home panel, so its back target comes from the history instead (Settings when it
+        // was opened here, Home when it was opened from the panel). Every other page either
+        // comes from that history (Fans has two entries: Home and Tuning) or returns Home.
         private static readonly Dictionary<string, string> PageBackTargets = new(StringComparer.Ordinal)
         {
             ["General"] = "Settings",
-            ["Power"] = "Settings",
-            ["Theme"] = "Settings",
-            ["Meta"] = "Settings",
+            ["Personalize"] = "Settings",
+            ["Services"] = "Settings",
+            ["Update"] = "Settings",
+            ["About"] = "Settings",
         };
 
         // ── DIP sizes (converted with the window DPI before reaching AppWindow) ──
@@ -133,6 +140,17 @@ namespace Predex.WinUI.Shell
         private readonly ShellUiState _uiState = ShellUiState.Load();
         private ShellServices? _services;
         private DispatcherQueueTimer? _resizeTimer;
+        /// <summary>
+        /// The tick handler of the size animation that is currently attached to
+        /// <see cref="_resizeTimer"/>. Held so the next round can detach it: a timer event
+        /// would otherwise keep the previous round's closure alive, and that round stops the
+        /// timer when it finishes — killing the animation that replaced it.
+        /// </summary>
+        private Windows.Foundation.TypedEventHandler<DispatcherQueueTimer, object>? _resizeTickHandler;
+        /// <summary>Which round owns the size timer (see <see cref="SizeAnimationRound"/>).</summary>
+        private readonly SizeAnimationRound _sizeRound = new();
+        /// <summary>Which hide may still hide the window (see <see cref="HideCompletionGate"/>).</summary>
+        private readonly HideCompletionGate _hideGate = new();
         private DispatcherQueueTimer? _autoHideTimer;
         private DispatcherQueueTimer? _toastTimer;
         private bool _toastVisualReady;
@@ -141,6 +159,13 @@ namespace Predex.WinUI.Shell
         private bool _isExpanded;
         private string _currentTag = "Home";
         private DateTime _ignoreDeactivateUntil = DateTime.MinValue;
+
+        /// <summary>
+        /// True once <see cref="QuitApplication"/> has run: the shell is on its way out. Read by
+        /// the install fallback (UpdateShutdownProbe) so a slow-but-normal close is never turned
+        /// into a forced kill.
+        /// </summary>
+        internal bool IsExiting => _isExplicitExit;
 
         public ShellWindow()
         {
@@ -165,6 +190,14 @@ namespace Predex.WinUI.Shell
 
             App.CurrentShell = this;
             ThemeManager.Initialize(this);
+
+            // The title-bar mark is painted in the user's accent by a Composition brush
+            // (Shell\AccentGlyphBrush.cs). Whether that accent is readable depends on the surface
+            // behind it, so a light/dark flip has to recompute the tint — and "follow system" flips
+            // the surface without ever raising AppearanceService.ThemeChanged. The element's own
+            // theme notification is the one signal that covers every case, including that one.
+            if (BrandMark.Fill is AccentGlyphBrush accentGlyph)
+                BrandMark.ActualThemeChanged += (_, _) => accentGlyph.RefreshTint();
 
             // S6 dialog seam: assign the ContentDialog-backed prompt service before any page can
             // raise a prompt. MainViewModel.UserPrompts is the internal setter the WPF project
@@ -396,8 +429,29 @@ namespace Predex.WinUI.Shell
             AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, w, h));
         }
 
+        /// <summary>
+        /// Tears down the live size animation, if any: detach its tick handler first, then stop
+        /// the timer, then retire its token. Every new animation (and the instant-resize path)
+        /// starts here, so at most one round can ever write the window size.
+        /// </summary>
+        private void StopSizeAnimation()
+        {
+            if (_resizeTickHandler is not null)
+            {
+                _resizeTimer?.Tick -= _resizeTickHandler;
+                _resizeTickHandler = null;
+            }
+            _resizeTimer?.Stop();
+            _sizeRound.Cancel();
+        }
+
         private void AnimateWindowSize(int targetHeightDip, int durationMs, int delayMs)
         {
+            // A navigation or an expand/collapse inside the previous round's 200-220 ms used to
+            // leave the old tick attached: it finished first, called timer.Stop() (stopping the
+            // *new* round too) and wrote its own half-way height. Supersede it up front instead.
+            StopSizeAnimation();
+
             int targetWidth = Scale(WindowWidth);
             int targetHeight = Scale(targetHeightDip);
 
@@ -415,7 +469,9 @@ namespace Predex.WinUI.Shell
                 catch { }
             }
 
-            // Reduced motion (or a first layout pass): switch size without animating.
+            // Reduced motion (or a first layout pass): switch size without animating. The
+            // previous round is already stopped above — an instant resize must not be undone by
+            // a leftover tick writing an interpolated height.
             if (durationMs <= 0 || !MotionEnabled())
             {
                 ApplyImmediately();
@@ -433,14 +489,16 @@ namespace Predex.WinUI.Shell
             int delayFrames = (int)Math.Ceiling(delayMs / (double)frameMs);
 
             _resizeTimer ??= DispatcherQueue.CreateTimer();
-            _resizeTimer.Stop();
             _resizeTimer.Interval = TimeSpan.FromMilliseconds(frameMs);
             _resizeTimer.IsRepeating = true;
-            _resizeTimer.Tick += ResizeTick;
-            _resizeTimer.Start();
+
+            long round = _sizeRound.Begin();
 
             void ResizeTick(DispatcherQueueTimer timer, object args)
             {
+                // A newer round took the window: write nothing and do not touch the timer.
+                if (!_sizeRound.IsOwner(round)) return;
+
                 // Frame-count progress (never wall clock): a stalled UI thread must not
                 // teleport the window to its final size.
                 if (skipped++ < delayFrames) return;
@@ -459,10 +517,18 @@ namespace Predex.WinUI.Shell
 
                 if (progress >= 1)
                 {
+                    // Only the round that still owns the timer may stop it. Losing ownership
+                    // means a newer round already replaced this handler.
+                    if (!_sizeRound.Release(round)) return;
+                    _resizeTickHandler = null;
                     timer.Stop();
                     timer.Tick -= ResizeTick;
                 }
             }
+
+            _resizeTickHandler = ResizeTick;
+            _resizeTimer.Tick += ResizeTick;
+            _resizeTimer.Start();
         }
 
         private static bool MotionEnabled()
@@ -724,6 +790,31 @@ namespace Predex.WinUI.Shell
         }
 
         /// <summary>
+        /// Re-measures the page that is currently open and, if its content grew or shrank after
+        /// the initial navigation, resizes the window to the new extent (clamped by the same cap
+        /// <see cref="SecondaryPageHeightDip"/> uses).
+        ///
+        /// Needed by pages whose content is state-driven rather than fixed: the Update page is
+        /// one card whose height changes with the update state (release notes appear, a progress
+        /// block appears, a failure sentence appears). NavigateTo measures the page once, so
+        /// without this the primary button of the "update available" state could end up below the
+        /// fold of a window that was sized for the idle state. The page asks for the refit; the
+        /// shell still owns the geometry.
+        /// </summary>
+        internal void RefitCurrentPageHeight()
+        {
+            Page? page = CurrentPage();
+            if (page is null || string.Equals(_currentTag, "Home", StringComparison.Ordinal)) return;
+            if (!ReferenceEquals(page.GetType(), PageTypes[_currentTag])) return;
+
+            int target = SecondaryPageHeightDip(page);
+            int current = Scale(CurrentTargetHeightDip(_currentTag, page));
+            if (Math.Abs(AppWindow.Size.Height - current) <= Scale(8)) return;
+            AnimateWindowSize(CurrentTargetHeightDip(_currentTag, page), ExpandDurationMs, 0);
+            ShellLog.Write("nav", $"refit page={_currentTag} targetHeight={target}DIP");
+        }
+
+        /// <summary>
         /// Where the back button goes from <paramref name="tag"/>: the fixed parent from
         /// <see cref="PageBackTargets"/> (Settings sub-pages → Settings), otherwise the page
         /// that opened it (Tuning → Fans → Tuning), otherwise Home.
@@ -849,8 +940,20 @@ namespace Predex.WinUI.Shell
             HomeChrome.Visibility = home ? Visibility.Visible : Visibility.Collapsed;
             PageChrome.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
             ExpandButton.Visibility = home ? Visibility.Visible : Visibility.Collapsed;
-            PageTitleText.Text = Loc.T(PageTitleKeys[_currentTag]);
+            PageTitleText.Text = PageTitleFor(_currentTag);
             UpdateBackTooltip();
+        }
+
+        /// <summary>
+        /// Display title for a page tag. "Services" is brand-named ("ASUS 服务") because the page
+        /// it opens is about that vendor's services; everything else is the fixed English key run
+        /// through the localization table.
+        /// </summary>
+        private static string PageTitleFor(string tag)
+        {
+            if (string.Equals(tag, "Services", StringComparison.Ordinal))
+                return ServicesTitle.For(OemBrandProbe.Detect());
+            return Loc.T(PageTitleKeys[tag]);
         }
 
         /// <summary>
@@ -858,7 +961,7 @@ namespace Predex.WinUI.Shell
         /// Tuning when Fans was opened from there, Home otherwise) instead of always "Home".
         /// </summary>
         private void UpdateBackTooltip()
-            => ToolTipService.SetToolTip(BackButton, Loc.T(PageTitleKeys[BackTargetFor(_currentTag)]));
+            => ToolTipService.SetToolTip(BackButton, PageTitleFor(BackTargetFor(_currentTag)));
 
         /// <summary>
         /// Back button: returns to the page this one belongs to. The four Settings sub-pages go
@@ -880,6 +983,12 @@ namespace Predex.WinUI.Shell
         // ── Show / hide / quit ───────────────────────────────────────────────────
         public void ShowAndActivate()
         {
+            // Before anything else: kill whatever hide is still playing. Its 160 ms completion
+            // callback would otherwise run after the window came back, hide it again and drop
+            // the page tree RestoreCurrentPage is about to rebuild. Cancel first, keep the
+            // queue marshalling below.
+            _hideGate.CancelPending();
+
             DispatcherQueue.TryEnqueue(() =>
             {
                 if (_isExplicitExit) return;
@@ -940,14 +1049,24 @@ namespace Predex.WinUI.Shell
         private void HideWindow(string reason)
         {
             if (!AppWindow.IsVisible || _isExplicitExit) return;
+            long hide = _hideGate.Arm();
             ShellLog.Write("window", $"hide requested ({reason})");
             PlayHideAnimation(onComplete: () =>
             {
+                // False = a show started inside the 160 ms hide animation and already owns the
+                // window: return false so the visuals are left to the show animation, and skip
+                // AppWindow.Hide() + ReleasePageTree() entirely.
+                if (!_hideGate.IsArmed(hide))
+                {
+                    ShellLog.Write("window", $"hide ({reason}) superseded by show — not hidden");
+                    return false;
+                }
                 AppWindow.Hide();
                 _services?.NotifyWindowHidden();
                 ViewModel.SetMainWindowTelemetryVisible(false);
                 ReleasePageTree();
                 ShellLog.Write("window", "hidden");
+                return true;
             });
         }
 

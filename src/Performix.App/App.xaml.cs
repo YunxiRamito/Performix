@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Predex.WinUI.Services;
+using Predex.WinUI.Services.Update;
 using PreySense.Frontend.Services;
 using System;
 using System.Linq;
@@ -93,6 +94,23 @@ namespace Predex.WinUI
                 return;
             }
 
+            // ── Update check switch (--check-update) ─────────────────────────────
+            // One headless check, printed and written to %LOCALAPPDATA%\Performix\logs\
+            // update-check.log, then exit. Runs before the single-instance guard and before any
+            // XAML window exists, so it also works while another Performix is running and can
+            // never leave a window behind. "No release published yet" is exit code 0: the
+            // repository having no release is a fact about the feed, not an error.
+            string[] updateArgs = Environment.GetCommandLineArgs();
+            if (UpdateCli.IsCheckUpdateRequested(updateArgs))
+            {
+                int exitCode;
+                try { exitCode = UpdateCli.RunCheck(updateArgs); }
+                catch { exitCode = 1; }
+                Exit();
+                Environment.Exit(exitCode);
+                return;
+            }
+
             // ── Single instance guard ────────────────────────────────────────────
             // 注意：不能在这一分支里调 Application.Exit()。
             // OnLaunched 运行时 XAML 根（Application.Current / CoreWindow 之类）还没建完，
@@ -147,7 +165,21 @@ namespace Predex.WinUI
             LocalizationService.Initialize();
             _ = Task.Run(PreySense.Overlay.WinRing0Cleanup.RemoveInstalledDriver);
 
+            // First run defaults to "Run on Startup" on (tray only, --minimized); a saved
+            // answer always wins. Best effort — a failure never blocks startup.
+            _ = Task.Run(PreySense.Frontend.Services.StartupTaskService.ResolveStartupPreference);
+
             string[] commandLine = Environment.GetCommandLineArgs();
+
+            // ── Update session (check / download / verify / replace) ─────────────
+            // Created before the shell so the Updates page can render the machine immediately.
+            // A test feed (--update-feed) implies "do not install": verification runs against
+            // fake packages and must never touch the real installation.
+            UpdateOptions updateOptions = UpdateCli.OptionsFromCommandLine(commandLine);
+            bool suppressInstall = UpdateCli.IsInstallSuppressed(commandLine) ||
+                                   !string.IsNullOrWhiteSpace(updateOptions.FeedOverride);
+            UpdateSession.Initialize(updateOptions, suppressInstall);
+
             NoAutoHide = commandLine.Any(a => a.Equals("--no-autohide", StringComparison.OrdinalIgnoreCase));
             if (commandLine.Any(a => a.Equals("--trace", StringComparison.OrdinalIgnoreCase)))
                 ShellLog.Enable();
@@ -170,6 +202,11 @@ namespace Predex.WinUI
                 _shell.ShowAndActivate();
             else
                 _shell.InitTrayOnly();
+
+            // ── "已更新到 x.y.z" notice ───────────────────────────────────────────
+            // invoke-update.ps1 restarted us with --updated-from <old version>; that is the only
+            // signal that this is the first run of a freshly swapped build.
+            NotifyUpdatedLaunch(commandLine);
 
             // ── Acer ACPI-WMI hotkeys (Turbo / extreme mode key) ─────────────────
             // Started after the shell exists: the action must go through the shell's
@@ -203,6 +240,68 @@ namespace Predex.WinUI
                 ShellLog.Write("app", $"ui demo requested: {demo}");
                 _shell.RunUiDemo(demo);
             }
+
+            StartUpdateAutoRun(UpdateCli.AutoMode(commandLine));
+        }
+
+        /// <summary>
+        /// True once <see cref="RequestExit"/> has run: a shutdown is under way. The install
+        /// fallback (UpdateShutdownProbe) reads it to tell "slow close" from "stuck".
+        /// </summary>
+        internal static bool IsExitRequested => _exiting;
+
+        /// <summary>
+        /// One-off toast + log for the first launch after a successful self-update. The version
+        /// hand-off comes from the replacement script (--updated-from), the wording from
+        /// LocalizationService, and the shell InfoBar from InfoWindowService.
+        /// </summary>
+        private static void NotifyUpdatedLaunch(string[] commandLine)
+        {
+            string? previous = UpdateLaunchNotice.ParseUpdatedFrom(commandLine);
+            if (previous is null) return;
+
+            string now = UpdateCheckService.InformationalVersion;
+            ShellLog.Write("update",
+                $"started after an update: now {now}, was {previous} " +
+                $"(restarted by invoke-update.ps1 with {UpdateLaunchNotice.UpdatedFromSwitch})");
+
+            try
+            {
+                InfoWindowService.ShowInformation(
+                    LocalizationService.Format(UpdateLaunchNotice.UpdatedTitleKey, now),
+                    LocalizationService.Format(UpdateLaunchNotice.UpdatedFromKey, previous));
+            }
+            catch (Exception ex)
+            {
+                // A toast that cannot render must not cost the log line above.
+                ShellLog.Write("update", $"updated notice failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Verification hook (never used by a normal run): <c>--update-auto=check|download</c>
+        /// drives the update session once after startup so the screenshot script can photograph
+        /// the real states without clicking. Installing is suppressed separately by
+        /// <c>--update-no-install</c> or by using a test feed.
+        /// </summary>
+        private static void StartUpdateAutoRun(string? mode)
+        {
+            if (string.IsNullOrWhiteSpace(mode)) return;
+
+            ShellLog.Write("update", $"verification auto-run requested: {mode}");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await UpdateSession.CheckAsync();
+                    if (string.Equals(mode, "download", StringComparison.OrdinalIgnoreCase))
+                        await UpdateSession.DownloadAsync();
+                }
+                catch (Exception ex)
+                {
+                    ShellLog.Write("update", $"auto-run failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            });
         }
 
         /// <summary>

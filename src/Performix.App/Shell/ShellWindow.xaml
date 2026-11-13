@@ -27,6 +27,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:local="using:Predex.WinUI"
     xmlns:controls="using:Predex.WinUI.Controls"
+    xmlns:shell="using:Predex.WinUI.Shell"
     mc:Ignorable="d"
     Title="Performix">
 
@@ -55,15 +56,23 @@
                labelled fan row read as a mystery pair (R2 item 7 of the second review).
                Both values use the same style — the first one used to be brighter than the
                second for no reason.
-               R3: the old "▲" Path placeholder is gone. The mark is a generated placeholder
-               (assets\branding\performix-logo.png, 256 px) until an original logo exists —
-               it is deliberately NOT the OEM emblem. The version number no longer lives here —
-               it is the bottom-left footer below, expanded home density only. -->
+               R3: the old "▲" Path placeholder is gone. The mark is the Performix
+               speedometer glyph — arc + needle lifted off the branded plate — so it holds up at
+               16x16; it is deliberately NOT the OEM emblem. The version number no longer lives here —
+               it is the bottom-left footer below, expanded home density only.
+               Themed: the glyph itself is performix-mark-mono.png (white strokes, transparent
+               background) painted through AccentGlyphBrush, a CompositionMaskBrush that tints the
+               glyph with AppearanceService.AccentColor and repaints in place when the user picks a
+               different accent (Shell\AccentGlyphBrush.cs). The flat #3B82F6 PNG that used to sit
+               here is no longer what the title bar shows — the accent is the only blue in it now. -->
           <StackPanel x:Name="HomeChrome" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-            <Image x:Name="BrandMark" Width="16" Height="16" VerticalAlignment="Center"
-                   Source="ms-appx:///Assets/performix-mark.png"
-                   AutomationProperties.AutomationId="ImgBrandMark"
-                   AutomationProperties.Name="Performix"/>
+            <Rectangle x:Name="BrandMark" Width="16" Height="16" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="ImgBrandMark"
+                       AutomationProperties.Name="Performix">
+              <Rectangle.Fill>
+                <shell:AccentGlyphBrush GlyphSource="ms-appx:///Assets/performix-mark-mono.png"/>
+              </Rectangle.Fill>
+            </Rectangle>
             <TextBlock Text="Performix" FontSize="12" FontWeight="SemiBold" CharacterSpacing="120"
                        Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
             <Border Width="1" Height="12" VerticalAlignment="Center"
@@ -106,10 +115,10 @@
                     AutomationProperties.Name="Back"
                     Click="BackButton_Click">
               <FontIcon Glyph="&#xE96F;" FontFamily="Segoe Fluent Icons" FontSize="12"
-                        Foreground="{StaticResource TextSecondaryBrush}"/>
+                        Foreground="{ThemeResource PageTextSecondaryBrush}"/>
             </Button>
             <TextBlock x:Name="PageTitleText" Text="Home" FontSize="16" FontWeight="SemiBold"
-                       Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                       Foreground="{ThemeResource PageTextPrimaryBrush}" VerticalAlignment="Center"/>
           </StackPanel>
         </StackPanel>
       </Grid>

@@ -3,12 +3,14 @@
 #   pwsh -NoProfile -File src\Performix.App\docs\ia-verify.ps1 -Exe "<...>\Performix.exe"
 #
 # Produces (repo docs\):
-#   ia-settings-hub.png      the Settings directory page: 4 navigation rows + version top right
-#   ia-general.png           Settings → General
+#   ia-settings-hub.png      the Settings directory page: six compact icon rows + the version
+#   ia-general.png           Settings → General (language / startup / power configuration)
 #   ia-back-to-settings.png  after Back from General: the directory page again (proves the
 #                            PageBackTargets table; the old shell returned Home)
-#   ia-power.png             Settings → Power Profiles
-#   ia-meta.png              Settings → Updates and About (honest "no update feed" state)
+#   ia-personalize.png       Settings → Personalisation (theme card + four Interface switches)
+#   ia-services.png          Settings → Services (brand-named: ASUS / Acer / Vendor services)
+#   ia-update.png            Settings → Update (honest "no release yet" state)
+#   ia-about.png             Settings → About
 #
 # The window enumeration / PrintWindow / UIA-Click primitives are the same ones
 # docs\s1-verify.ps1 … docs\s6-verify.ps1 used in the WPF-era verification rounds (EnumWindows
@@ -196,7 +198,7 @@ function Stop-Shell {
 
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
 
-# ═══ Settings directory + its four sub-pages ═════════════════════════════════
+# ═══ Settings directory + its sub-pages (settings IA v2) ════════════════════
 $run = Start-Shell @()
 $proc = $run.Proc; $win = $run.Win; $logPath = $run.Log
 Start-Sleep -Milliseconds 5000    # telemetry first frame
@@ -226,21 +228,51 @@ Report-Rect $hwnd 'after Back'
 Read-UiText $hwnd 'TxtSettingsVersion'
 Save-Shot $hwnd 'ia-back-to-settings.png'
 
-Write-Step 'Settings → Power Profiles'
-[void](Invoke-Ui $hwnd 'BtnSettingsPower')
+Write-Step 'Settings → Personalisation (theme + the four Interface switches)'
+[void](Invoke-Ui $hwnd 'BtnSettingsPersonalize')
 Start-Sleep -Milliseconds 1500
-Report-Rect $hwnd 'Power Profiles'
-Save-Shot $hwnd 'ia-power.png'
+Report-Rect $hwnd 'Personalisation'
+Read-UiText $hwnd 'ChkUiStatusBar'
+Read-UiText $hwnd 'ChkUiWidgetBar'
+Save-Shot $hwnd 'ia-personalize.png'
 
-Write-Step 'Back → Settings → Updates and About'
+Write-Step 'Back → Settings → Tuning (shared with the home panel)'
 [void](Invoke-Ui $hwnd 'BtnBack')
 Start-Sleep -Milliseconds 1200
-[void](Invoke-Ui $hwnd 'BtnSettingsMeta')
+[void](Invoke-Ui $hwnd 'BtnSettingsTuning')
 Start-Sleep -Milliseconds 1500
-Report-Rect $hwnd 'Updates and About'
+Report-Rect $hwnd 'Tuning'
+Save-Shot $hwnd 'ia-tuning.png'
+
+Write-Step 'Back → Settings → Services (brand-named: ASUS / Acer / Vendor services)'
+[void](Invoke-Ui $hwnd 'BtnBack')
+Start-Sleep -Milliseconds 1200
+[void](Invoke-Ui $hwnd 'BtnSettingsServices')
+Start-Sleep -Milliseconds 1500
+Report-Rect $hwnd 'Services'
+Read-UiText $hwnd 'ChkAcerServices'
+Read-UiText $hwnd 'TxtServiceListTitle'
+Read-UiText $hwnd 'TxtServiceCount'
+Save-Shot $hwnd 'ia-services.png'
+
+Write-Step 'Back → Settings → Update'
+[void](Invoke-Ui $hwnd 'BtnBack')
+Start-Sleep -Milliseconds 1200
+[void](Invoke-Ui $hwnd 'BtnSettingsUpdate')
+Start-Sleep -Milliseconds 1500
+Report-Rect $hwnd 'Update'
 Read-UiText $hwnd 'TxtUpdateState'
-Read-UiText $hwnd 'TxtMetaVersion'
-Save-Shot $hwnd 'ia-meta.png'
+Read-UiText $hwnd 'TxtUpdateVersion'
+Save-Shot $hwnd 'ia-update.png'
+
+Write-Step 'Back → Settings → About'
+[void](Invoke-Ui $hwnd 'BtnBack')
+Start-Sleep -Milliseconds 1200
+[void](Invoke-Ui $hwnd 'BtnSettingsAbout')
+Start-Sleep -Milliseconds 1500
+Report-Rect $hwnd 'About'
+Read-UiText $hwnd 'TxtAboutVersion'
+Save-Shot $hwnd 'ia-about.png'
 
 Write-Step 'shell.log navigation evidence'
 if (Test-Path $logPath) {

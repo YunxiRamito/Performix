@@ -65,18 +65,15 @@
                   VerticalScrollBarVisibility="Auto">
       <StackPanel Spacing="8" MaxWidth="720" HorizontalAlignment="Stretch">
 
-        <!-- ═══ Header: one subtitle line, not a repeated page heading ═════════
-             The shell title bar already prints "灯光"; a 16 DIP heading under it spent
-             ~50 DIP of a 280 DIP window to say the same word twice (R2 item 3). -->
+        <!-- ═══ Header: refreshing chip only ═════════════════════════════════
+             The shell title bar already prints "灯光"; a heading or a subtitle line under it
+             would spend ~50 DIP of a 280 DIP window saying the same thing twice
+             (docs\UI-DESIGN-RULES.md §7). -->
         <Grid ColumnSpacing="8" Margin="0,0,0,4">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
           </Grid.ColumnDefinitions>
-          <TextBlock Grid.Column="0"
-                     Text="{x:Bind local:Loc.T('Keyboard zones, logo and OEM device lighting.')}"
-                     Style="{StaticResource PageSubtitleStyle}" VerticalAlignment="Center"
-                     AutomationProperties.AutomationId="TxtLightingSubtitle"/>
           <Border Grid.Column="1" CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
                   Background="{StaticResource SectionBgBrush}"
                   Visibility="{x:Bind local:Converters.BoolToVis(Vm.IsRefreshingLightingDevices), Mode=OneWay}">

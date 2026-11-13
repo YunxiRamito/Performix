@@ -98,9 +98,8 @@
                 VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="12" MaxWidth="640" HorizontalAlignment="Stretch">
 
-      <TextBlock Text="{x:Bind local:Loc.T('Overlay HUD: metric slots, scale, opacity, position and theme.')}"
-                 Style="{StaticResource PageSubtitleStyle}"
-                 AutomationProperties.AutomationId="TxtOverlaySubtitle"/>
+      <!-- No page subtitle: the shell title bar already names the page
+           (docs\UI-DESIGN-RULES.md §7 — no description text used to fill a layout). -->
 
       <!-- ═══════════════════════════════════════════════════════════════════
            OVERLAY METRIC SLOTS (first: this is what the page is for)

@@ -4,5 +4,6 @@
   <Project Path="src/Performix.App/Performix.App.csproj" />
   <Project Path="src/Performix.Legacy.Wpf/Performix.Legacy.Wpf.csproj" />
   <Project Path="src/Performix.Probe/Performix.Probe.csproj" />
+  <Project Path="src/Performix.Installer/Performix.Installer.csproj" />
   <Project Path="tests/Performix.Tests/Performix.Tests.csproj" />
 </Solution>

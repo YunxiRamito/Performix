@@ -34,10 +34,8 @@
 
     <StackPanel Spacing="12">
 
-      <!-- ═══ PAGE SUBTITLE (the shell title bar already names the page) ═══ -->
-      <TextBlock Text="{x:Bind local:Loc.T('Fan curves, live RPM and the curve editor.')}"
-                 Style="{StaticResource PageSubtitleStyle}"
-                 AutomationProperties.AutomationId="TxtFansSubtitle"/>
+      <!-- No page subtitle: the shell title bar already names the page, and the header of the
+           first group says what the first control does (docs\UI-DESIGN-RULES.md §7). -->
 
       <!-- ═══ PROFILE MODE (which operating mode's curve is being edited) ═══ -->
       <StackPanel Spacing="6">

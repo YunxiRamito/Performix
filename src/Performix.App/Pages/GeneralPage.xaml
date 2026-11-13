@@ -1,25 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  General — settings sub-page (IA phase 1, docs\design\UI-ARCH.md §1/§2).
+  General — settings sub-page (settings IA v2).
 
-  The "General" card of the old flat SettingsPage, unchanged in behaviour, on its own page:
+  Two cards:
 
-    Language       5-item dropdown, applied immediately and saved to preysense.json
-    Theme          navigation row → Pages\ThemePage (appearance controls live there)
-    Run on Startup elevated scheduled task (switch disabled while the task state is read)
-    Acer Services  stops / restores the OEM background services (switch)
+    Card 1  Language / Run on Startup / Always on Top / Special Key Wake
+    Card 2  Power Configuration (moved here from the deleted Power page):
+              On Battery           5 profiles, persisted by the ViewModel (no command)
+              On AC                 5 profiles, same mechanism
+              USB Power-Off Charging  four-position dropdown + write-readback line
+              Battery Limit          switch + a bar showing the active charge cap
+              Energy Saver on Battery Windows energy saver while on battery (kept: it was a
+                                     working setting before the restructure and the design
+                                     did not ask for a feature to be removed)
+
+  HONESTY RULES
+    • Always on Top and Special Key Wake exist in the design but NOT in the code: the shell is
+      a tray panel that hides when it loses focus (so "topmost" has no meaning yet), and the
+      Predator / mode keys are fixed in KeyboardHookService / AcerHotkeyWatcher with no setting
+      behind them. Both rows are therefore disabled with the reason written on the row — never
+      a live switch that does nothing (docs\design\UI-ARCH.md §4.1.1 / §4.1.2).
+    • The design's AC entry "restore the original configuration" is not offered either:
+      Session.AcPowerMode only accepts the five profile bytes (Core folder, not editable from
+      this stage), so there is no state to store for it. Five profiles are shown for both
+      sources instead of inventing a sixth value the backend cannot persist.
+    • The battery bar shows the real charge cap the ViewModel holds (MainViewModel
+      .BatteryLimitPercent: 80 when the limit is on, 100 when it is off), not a fake percentage.
 
   Layout rules (docs\UI-DESIGN-RULES.md):
-    • one card inside the page ScrollViewer, shared CardStyle padding (12) and radius (6)
-    • spacing only 4 / 6 / 8 / 12 / 16; font sizes only 11 / 12 / 16
-    • row styles come from Styles\Resources.xaml (SettingRowStyle / SettingLabelStyle /
-      SettingComboStyle / SettingSwitchStyle / SettingRowButtonStyle) so this page and
-      Power share one rhythm
-    • long explanations are a ToolTip on the muted info glyph (and AutomationProperties
-      .HelpText), never a paragraph on the card
-
-  Text is the English source string through Loc.T() → LocalizationService → UiText.
-  Bindings are x:Bind only; the page owns no ViewModel and never touches hardware directly.
+    • cards use the shared CardStyle padding (12) and radius (6); spacing 4 / 6 / 8 / 12 / 16
+    • font sizes only 11 / 12 / 16; every row uses the Setting* styles from Styles\Resources.xaml
+    • long explanations are a ToolTip on the muted info glyph, never a paragraph on the card
+    • text is the English source string through Loc.T() → LocalizationService; bindings are
+      x:Bind only, and the page owns no ViewModel of its own
 -->
 <Page
     x:Class="Predex.WinUI.Pages.GeneralPage"
@@ -39,10 +52,7 @@
                 VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Stretch">
 
-      <TextBlock Text="{x:Bind local:Loc.T('Language, theme, startup and Acer services.')}"
-                 Style="{StaticResource PageSubtitleStyle}"
-                 AutomationProperties.AutomationId="TxtGeneralSubtitle"/>
-
+      <!-- ═══ CARD 1 · LANGUAGE / STARTUP / TWO UNIMPLEMENTED SWITCHES ═══ -->
       <Border Style="{StaticResource CardStyle}">
         <StackPanel Spacing="0">
 
@@ -62,44 +72,19 @@
                          Style="{StaticResource SettingLabelStyle}"/>
               <FontIcon Grid.Column="1"
                         Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Applied immediately and saved to preysense.json. Missing translations fall back to English.')}"/>
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('The list stays open for new languages: adding one means adding one table.')}"/>
             </Grid>
 
+            <!-- The items are built in code from LocalizationService.LanguageOptions so the
+                 picker and the translation tables cannot drift, and so every entry shows its
+                 own native name (a language list must never be translated). -->
             <ComboBox x:Name="CmbLanguage" Grid.Column="1"
                       Style="{StaticResource SettingComboStyle}"
                       AutomationProperties.AutomationId="CmbLanguage"
                       AutomationProperties.Name="{x:Bind local:Loc.T('Language')}"
-                      AutomationProperties.HelpText="{x:Bind local:Loc.T('Applied immediately and saved to preysense.json. Missing translations fall back to English.')}"
-                      SelectionChanged="Language_SelectionChanged">
-              <ComboBoxItem Content="{x:Bind local:Loc.T('English')}" Tag="en-US"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('Simplified Chinese')}" Tag="zh-CN"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('Hindi')}" Tag="hi-IN"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('Spanish')}" Tag="es-ES"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('French')}" Tag="fr-FR"/>
-            </ComboBox>
+                      AutomationProperties.HelpText="{x:Bind local:Loc.T('The list stays open for new languages: adding one means adding one table.')}"
+                      SelectionChanged="Language_SelectionChanged"/>
           </Grid>
-
-          <!-- ── Theme → Pages\ThemePage (navigation, no duplicated control) ── -->
-          <Button x:Name="BtnOpenTheme" Style="{StaticResource SettingRowButtonStyle}"
-                  MinHeight="36" Click="OpenTheme_Click"
-                  AutomationProperties.AutomationId="BtnOpenTheme"
-                  AutomationProperties.Name="{x:Bind local:Loc.T('Theme')}"
-                  AutomationProperties.HelpText="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}">
-            <Grid ColumnSpacing="8">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-              </Grid.ColumnDefinitions>
-              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind local:Loc.T('Theme')}"
-                           Style="{StaticResource SettingLabelStyle}"/>
-                <TextBlock Text="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}"
-                           Style="{StaticResource SettingHintStyle}"/>
-              </StackPanel>
-              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
-            </Grid>
-          </Button>
 
           <!-- ── Run on Startup ────────────────────────────────────────────── -->
           <Grid Style="{StaticResource SettingRowStyle}">
@@ -117,7 +102,7 @@
                          Style="{StaticResource SettingLabelStyle}"/>
               <FontIcon Grid.Column="1"
                         Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Registers an elevated scheduled task so Windows starts Performix with fan curves and lighting restored.')}"/>
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Starts Performix when Windows starts, so fan curves and lighting are already in effect.')}"/>
             </Grid>
 
             <ToggleSwitch Grid.Column="1"
@@ -129,10 +114,111 @@
                           Toggled="RunOnStartup_Toggled"
                           AutomationProperties.AutomationId="ChkRunOnStartup"
                           AutomationProperties.Name="{x:Bind local:Loc.T('Run on Startup')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Registers an elevated scheduled task so Windows starts Performix with fan curves and lighting restored.')}"/>
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Starts Performix when Windows starts, so fan curves and lighting are already in effect.')}"/>
           </Grid>
 
-          <!-- ── Acer Services ─────────────────────────────────────────────── -->
+          <!-- ── Always on Top — disabled, with the reason on the row ──────── -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{x:Bind local:Loc.T('Always on Top')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Text="{x:Bind local:Loc.T('Not available in this version.')}"
+                         Style="{StaticResource SettingHintStyle}"
+                         AutomationProperties.AutomationId="TxtAlwaysOnTopHint"/>
+            </StackPanel>
+
+            <ToggleSwitch Grid.Column="1"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          IsEnabled="False"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          AutomationProperties.AutomationId="ChkAlwaysOnTop"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Always on Top')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Not available in this version.')}"/>
+          </Grid>
+
+          <!-- ── Special Key Wake — disabled, with the reason on the row ───── -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{x:Bind local:Loc.T('Special Key Wake')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Text="{x:Bind local:Loc.T('Not available in this version.')}"
+                         Style="{StaticResource SettingHintStyle}"
+                         AutomationProperties.AutomationId="TxtSpecialKeyHint"/>
+            </StackPanel>
+
+            <ToggleSwitch Grid.Column="1"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          IsEnabled="False"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          AutomationProperties.AutomationId="ChkSpecialKeyWake"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Special Key Wake')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Not available in this version.')}"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- ═══ CARD 2 · POWER CONFIGURATION (former Power page) ═══ -->
+      <Border Style="{StaticResource CardStyle}">
+        <StackPanel Spacing="0">
+
+          <TextBlock Text="{x:Bind local:Loc.T('Power Configuration')}"
+                     Style="{StaticResource SectionTitleStyle}"
+                     Margin="0,0,0,4"
+                     AutomationProperties.AutomationId="TxtPowerConfigurationTitle"/>
+
+          <!-- ── On Battery ───────────────────────────────────────────────── -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('On Battery')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+
+            <!-- The items are built in code from ProfileNames (see BuildPowerModeItems): an
+                 ItemsSource x:Bind resolves after the first layout pass, and a SelectedIndex
+                 written before that lands on an empty list and stays -1 — the empty box the
+                 review reported. -->
+            <ComboBox x:Name="CmbBatteryPowerMode" Grid.Column="1"
+                      Style="{StaticResource SettingComboStyle}"
+                      PlaceholderText="{x:Bind local:Loc.T('Unknown')}"
+                      SelectionChanged="BatteryPowerMode_SelectionChanged"
+                      AutomationProperties.AutomationId="CmbBatteryPowerMode"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('On Battery')}"/>
+          </Grid>
+
+          <!-- ── On AC ────────────────────────────────────────────────────── -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('On AC')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+
+            <ComboBox x:Name="CmbAcPowerMode" Grid.Column="1"
+                      Style="{StaticResource SettingComboStyle}"
+                      PlaceholderText="{x:Bind local:Loc.T('Unknown')}"
+                      SelectionChanged="AcPowerMode_SelectionChanged"
+                      AutomationProperties.AutomationId="CmbAcPowerMode"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('On AC')}"/>
+          </Grid>
+
+          <!-- ── USB Power-Off Charging (0..30, step 10; 0 shows Off) ──────── -->
           <Grid Style="{StaticResource SettingRowStyle}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
@@ -144,22 +230,100 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
               </Grid.ColumnDefinitions>
-              <TextBlock Text="{x:Bind local:Loc.T('Acer Services')}"
+              <TextBlock Text="{x:Bind local:Loc.T('USB Power-Off Charging')}"
                          Style="{StaticResource SettingLabelStyle}"/>
               <FontIcon Grid.Column="1"
                         Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Stops and disables Acer OEM background services to free memory. The official Predator Sense app stops working until you re-enable them.')}"/>
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Charges devices from the supported USB port while the laptop is off. Stops at the selected laptop battery level and uses battery power.')}"/>
             </Grid>
 
-            <ToggleSwitch x:Name="ChkAcerServices" Grid.Column="1"
+            <ComboBox x:Name="CmbUsbCharging" Grid.Column="1"
+                      Style="{StaticResource SettingComboStyle}"
+                      IsEnabled="{x:Bind Vm.CanChangeUsbCharging, Mode=OneWay}"
+                      SelectionChanged="UsbCharging_SelectionChanged"
+                      AutomationProperties.AutomationId="CmbUsbCharging"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('USB Power-Off Charging')}"
+                      AutomationProperties.HelpText="{x:Bind local:Loc.T('Charges devices from the supported USB port while the laptop is off. Stops at the selected laptop battery level and uses battery power.')}">
+              <ComboBoxItem Content="{x:Bind local:Loc.T('Off')}" Tag="0"/>
+              <ComboBoxItem Content="10%" Tag="10"/>
+              <ComboBoxItem Content="20%" Tag="20"/>
+              <ComboBoxItem Content="30%" Tag="30"/>
+            </ComboBox>
+          </Grid>
+
+          <!-- Readback failure / N/A line. Empty means the write round-tripped cleanly. -->
+          <TextBlock Text="{x:Bind Vm.UsbChargingStatus, Mode=OneWay}"
+                     Style="{StaticResource SettingHintStyle}"
+                     Visibility="{x:Bind StatusVisibility(Vm.UsbChargingStatus), Mode=OneWay}"
+                     Margin="0,0,0,4"
+                     AutomationProperties.AutomationId="TxtUsbChargingStatus"
+                     AutomationProperties.LiveSetting="Polite"/>
+
+          <!-- ── Battery Limit: switch + the bar of the active charge cap ──── -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Battery Limit')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <FontIcon Grid.Column="1"
+                        Style="{StaticResource SettingHelpGlyphStyle}"
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Caps charging at 80% to slow battery wear. Turned off the battery charges to 100%.')}"/>
+            </Grid>
+
+            <ToggleSwitch x:Name="ChkBatteryLimit" Grid.Column="1"
                           Style="{StaticResource SettingSwitchStyle}"
-                          IsOn="{x:Bind Vm.IsAcerServicesEnabled, Mode=OneWay}"
+                          IsOn="{x:Bind Vm.IsBatteryLimitEnabled, Mode=OneWay}"
                           OnContent="{x:Bind local:Loc.T('On')}"
                           OffContent="{x:Bind local:Loc.T('Off')}"
-                          Toggled="AcerServices_Toggled"
-                          AutomationProperties.AutomationId="ChkAcerServices"
-                          AutomationProperties.Name="{x:Bind local:Loc.T('Acer Services')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Stops and disables Acer OEM background services to free memory. The official Predator Sense app stops working until you re-enable them.')}"/>
+                          Toggled="BatteryLimit_Toggled"
+                          AutomationProperties.AutomationId="ChkBatteryLimit"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Battery Limit')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Caps charging at 80% to slow battery wear. Turned off the battery charges to 100%.')}"/>
+          </Grid>
+
+          <!-- The cap itself: 6 DIP bar + the "Charge cap 80%" label. The value is
+               MainViewModel.BatteryLimitPercent, so the bar always agrees with the switch. -->
+          <StackPanel Spacing="4" Margin="0,0,0,6">
+            <ProgressBar x:Name="PrgBatteryLimit" Height="6"
+                         Minimum="0" Maximum="100"
+                         Value="{x:Bind Vm.BatteryLimitPercent, Mode=OneWay}"
+                         CornerRadius="3"
+                         Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                         Background="{ThemeResource ProgressTrackBrush}"
+                         AutomationProperties.AutomationId="PrgBatteryLimit"
+                         AutomationProperties.Name="{x:Bind local:Loc.T('Battery Limit')}"/>
+            <TextBlock Text="{x:Bind CapText(Vm.BatteryLimitPercent), Mode=OneWay}"
+                       Style="{StaticResource SettingHintStyle}"
+                       AutomationProperties.AutomationId="TxtBatteryLimitCap"
+                       AutomationProperties.LiveSetting="Polite"/>
+          </StackPanel>
+
+          <!-- ── Energy Saver on Battery (TwoWay, no command) ──────────────── -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Energy Saver on Battery')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+
+            <ToggleSwitch x:Name="ChkEnergySaverOnBattery" Grid.Column="1"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          IsOn="{x:Bind Vm.IsBatteryEnergySaverEnabled, Mode=TwoWay}"
+                          AutomationProperties.AutomationId="ChkEnergySaverOnBattery"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Energy Saver on Battery')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Turns on the Windows Energy Saver while the laptop runs from battery.')}"/>
           </Grid>
         </StackPanel>
       </Border>

@@ -1,26 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Settings — the directory page (IA phase 1, docs\design\UI-ARCH.md §1/§2).
+  Settings — the directory page (settings IA v2, compact icon-row layout).
 
-  It used to be the whole settings surface: language, startup, Acer services, battery limit,
-  USB charging and both power profiles were pinned on this one page. The design splits the
-  settings tree into one directory page + four sub-pages, so this page is now a list of four
-  navigation rows and nothing else:
+  Six entries, one row each: icon + name + chevron. No subtitle sentence per row and no page
+  subtitle — the design review asked for the weight to sit on the icon and the name, so the
+  only words on this page are the six names plus the version.
 
-    General            Language / Theme entry / Run on Startup / Acer services
-    Power Profiles     Battery limit / USB power-off charging (+ readback) / On battery /
-                       On AC / Energy saver on battery
-    Theme              the existing ThemePage (content untouched, still reached from here)
-    Updates and About  version, update placeholder, build / logs / licence
+    General          Language / Run on Startup / Always on Top / Special Key Wake + Power
+                     Configuration (on battery, on AC, USB power-off charging, battery limit)
+    Personalisation  Theme (appearance mode / window style / material / accent) + Interface
+                     (four panel-row switches)
+    Tuning           fan curves + CPU scheduling + GPU overclocking (Pages\TuningPage)
+    Services         Acer OEM background services (PSSvc is never touched)
+    Update           the real update state machine
+    About            version, build time, architecture, licence, repository link
+
+  ICONS — Segoe Fluent Icons through FontIcon, no hand-drawn bitmaps:
+    General          E713  Setting
+    Personalisation  E790  Color
+    Tuning           E9F5  SpeedHigh / tuning glyph (the same one Home's Tuning tile uses)
+    Services         E90F  Repair
+    Update           E896  Download
+    About            E946  Info
 
   RULES
     • only a directory: no setting is duplicated here, every row navigates (SHELL-CONTRACT §2)
-    • one card, one column; row = title left + subtitle under it, chevron right
-    • the navigation-row / label / hint / chevron styles live in Styles\Resources.xaml so the
-      hub, General and Power share one row rhythm (they came out of this page)
+    • one card; row = setup from SettingRowButtonStyle, so hover/pressed match the rest of the app
     • the version string sits at the top right of the page header — the shell title bar is
       reserved for the wordmark and the CPU/GPU temperatures (UI-ARCH §2.8)
-    • text is the English source string through Loc.T(); long explanations are a ToolTip
+    • text is the English source string through Loc.T(); long explanations belong to the page
+      that owns the control, not to this list
 -->
 <Page
     x:Class="Predex.WinUI.Pages.SettingsPage"
@@ -35,129 +44,152 @@
     AutomationProperties.AutomationId="PageSettings"
     AutomationProperties.Name="{x:Bind local:Loc.T('Settings')}">
 
+  <Page.Resources>
+    <!-- One navigation row: icon | name | chevron. 40 DIP is the compact rhythm (36 was too
+         tight against a 16 px icon, 44 wasted a row of the 480 DIP page body). -->
+    <Style x:Key="SettingsEntryRowStyle" TargetType="Grid">
+      <Setter Property="ColumnSpacing" Value="{StaticResource GapGroup}"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    </Style>
+
+    <Style x:Key="SettingsEntryIconStyle" TargetType="FontIcon">
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons"/>
+      <Setter Property="FontSize" Value="{StaticResource FontSizePageTitle}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+      <Setter Property="Width" Value="20"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="AutomationProperties.AccessibilityView" Value="Raw"/>
+    </Style>
+  </Page.Resources>
+
   <ScrollViewer Padding="12,10,12,12"
                 HorizontalScrollBarVisibility="Disabled"
                 VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Stretch">
 
-      <!-- ═══════════════════════════════════════════════════════════════════
-           PAGE SUBTITLE + VERSION
-           One subtitle line, no repeated page heading: the shell title bar already says
-           "设置". The version is the only dynamic text on this page.
-           ═══════════════════════════════════════════════════════════════════ -->
-      <Grid ColumnSpacing="8">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*"/>
-          <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0"
-                   Text="{x:Bind local:Loc.T('Language, power, appearance, updates and about.')}"
-                   Style="{StaticResource PageSubtitleStyle}"
-                   VerticalAlignment="Top"
-                   AutomationProperties.AutomationId="TxtSettingsSubtitle"/>
-        <TextBlock Grid.Column="1" Text="{x:Bind VersionText}"
-                   FontSize="11" Foreground="{StaticResource TextMutedBrush}"
-                   VerticalAlignment="Top"
-                   ToolTipService.ToolTip="{x:Bind VersionText}"
-                   AutomationProperties.AutomationId="TxtSettingsVersion"/>
-      </Grid>
+      <!-- Version only: the shell title bar already says 设置, and the six names below say what
+           is in here. No explanatory sentence. -->
+      <TextBlock Text="{x:Bind VersionText}"
+                 FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                 HorizontalAlignment="Right"
+                 ToolTipService.ToolTip="{x:Bind VersionText}"
+                 AutomationProperties.AutomationId="TxtSettingsVersion"/>
 
-      <!-- ═══════════════════════════════════════════════════════════════════
-           SETTINGS DIRECTORY — four navigation rows
-           ═══════════════════════════════════════════════════════════════════ -->
+      <!-- ═══ SIX ENTRIES ═══ -->
       <Border Style="{StaticResource CardStyle}">
         <StackPanel Spacing="0">
 
-          <!-- ── General ─────────────────────────────────────────────────── -->
           <Button x:Name="BtnSettingsGeneral"
                   Style="{StaticResource SettingRowButtonStyle}"
-                  MinHeight="44" Click="OpenGeneral_Click"
+                  MinHeight="40" Click="OpenGeneral_Click"
                   AutomationProperties.AutomationId="BtnSettingsGeneral"
-                  AutomationProperties.Name="{x:Bind local:Loc.T('General')}"
-                  AutomationProperties.HelpText="{x:Bind local:Loc.T('Language, startup and Acer services.')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Language, startup and Acer services.')}">
-            <Grid ColumnSpacing="8">
+                  AutomationProperties.Name="{x:Bind local:Loc.T('General')}">
+            <Grid Style="{StaticResource SettingsEntryRowStyle}">
               <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
-              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind local:Loc.T('General')}"
-                           Style="{StaticResource SettingLabelStyle}"/>
-                <TextBlock Text="{x:Bind local:Loc.T('Language, startup and Acer services.')}"
-                           Style="{StaticResource SettingHintStyle}"/>
-              </StackPanel>
-              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
+              <FontIcon Grid.Column="0" Glyph="&#xE713;"
+                        Style="{StaticResource SettingsEntryIconStyle}"/>
+              <TextBlock Grid.Column="1" Text="{x:Bind local:Loc.T('General')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Grid.Column="2" Style="{StaticResource SettingChevronStyle}"/>
             </Grid>
           </Button>
 
-          <!-- ── Power Profiles ──────────────────────────────────────────── -->
-          <Button x:Name="BtnSettingsPower"
+          <Button x:Name="BtnSettingsPersonalize"
                   Style="{StaticResource SettingRowButtonStyle}"
-                  MinHeight="44" Click="OpenPower_Click"
-                  AutomationProperties.AutomationId="BtnSettingsPower"
-                  AutomationProperties.Name="{x:Bind local:Loc.T('Power Profiles')}"
-                  AutomationProperties.HelpText="{x:Bind local:Loc.T('Battery limit, USB power-off charging and power profiles.')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Battery limit, USB power-off charging and power profiles.')}">
-            <Grid ColumnSpacing="8">
+                  MinHeight="40" Click="OpenPersonalize_Click"
+                  AutomationProperties.AutomationId="BtnSettingsPersonalize"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('Personalisation')}">
+            <Grid Style="{StaticResource SettingsEntryRowStyle}">
               <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
-              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind local:Loc.T('Power Profiles')}"
-                           Style="{StaticResource SettingLabelStyle}"/>
-                <TextBlock Text="{x:Bind local:Loc.T('Battery limit, USB power-off charging and power profiles.')}"
-                           Style="{StaticResource SettingHintStyle}"/>
-              </StackPanel>
-              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
+              <FontIcon Grid.Column="0" Glyph="&#xE790;"
+                        Style="{StaticResource SettingsEntryIconStyle}"/>
+              <TextBlock Grid.Column="1" Text="{x:Bind local:Loc.T('Personalisation')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Grid.Column="2" Style="{StaticResource SettingChevronStyle}"/>
             </Grid>
           </Button>
 
-          <!-- ── Theme (existing page, content untouched) ────────────────── -->
-          <Button x:Name="BtnSettingsTheme"
+          <Button x:Name="BtnSettingsTuning"
                   Style="{StaticResource SettingRowButtonStyle}"
-                  MinHeight="44" Click="OpenTheme_Click"
-                  AutomationProperties.AutomationId="BtnSettingsTheme"
-                  AutomationProperties.Name="{x:Bind local:Loc.T('Theme')}"
-                  AutomationProperties.HelpText="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}">
-            <Grid ColumnSpacing="8">
+                  MinHeight="40" Click="OpenTuning_Click"
+                  AutomationProperties.AutomationId="BtnSettingsTuning"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('Tuning')}">
+            <Grid Style="{StaticResource SettingsEntryRowStyle}">
               <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
-              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind local:Loc.T('Theme')}"
-                           Style="{StaticResource SettingLabelStyle}"/>
-                <TextBlock Text="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}"
-                           Style="{StaticResource SettingHintStyle}"/>
-              </StackPanel>
-              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
+              <FontIcon Grid.Column="0" Glyph="&#xE9F5;"
+                        Style="{StaticResource SettingsEntryIconStyle}"/>
+              <TextBlock Grid.Column="1" Text="{x:Bind local:Loc.T('Tuning')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Grid.Column="2" Style="{StaticResource SettingChevronStyle}"/>
             </Grid>
           </Button>
 
-          <!-- ── Updates and About ─────────────────────────────────────────
-               Subtitle carries the version + the honest update-feed state, so the row is
-               useful without opening it (IA phase 1: no fake update progress anywhere). -->
-          <Button x:Name="BtnSettingsMeta"
+          <Button x:Name="BtnSettingsServices"
                   Style="{StaticResource SettingRowButtonStyle}"
-                  MinHeight="44" Click="OpenMeta_Click"
-                  AutomationProperties.AutomationId="BtnSettingsMeta"
-                  AutomationProperties.Name="{x:Bind local:Loc.T('Updates and About')}"
-                  AutomationProperties.HelpText="{x:Bind MetaSubtitle}"
-                  ToolTipService.ToolTip="{x:Bind MetaSubtitle}">
-            <Grid ColumnSpacing="8">
+                  MinHeight="40" Click="OpenServices_Click"
+                  AutomationProperties.AutomationId="BtnSettingsServices"
+                  AutomationProperties.Name="{x:Bind ServicesLabel, Mode=OneWay}">
+            <Grid Style="{StaticResource SettingsEntryRowStyle}">
               <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
-              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                <TextBlock Text="{x:Bind local:Loc.T('Updates and About')}"
-                           Style="{StaticResource SettingLabelStyle}"/>
-                <TextBlock Text="{x:Bind MetaSubtitle}" Style="{StaticResource SettingHintStyle}"/>
-              </StackPanel>
-              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
+              <FontIcon Grid.Column="0" Glyph="&#xE90F;"
+                        Style="{StaticResource SettingsEntryIconStyle}"/>
+              <TextBlock Grid.Column="1" Text="{x:Bind ServicesLabel, Mode=OneWay}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Grid.Column="2" Style="{StaticResource SettingChevronStyle}"/>
+            </Grid>
+          </Button>
+
+          <Button x:Name="BtnSettingsUpdate"
+                  Style="{StaticResource SettingRowButtonStyle}"
+                  MinHeight="40" Click="OpenUpdate_Click"
+                  AutomationProperties.AutomationId="BtnSettingsUpdate"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('Update')}">
+            <Grid Style="{StaticResource SettingsEntryRowStyle}">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <FontIcon Grid.Column="0" Glyph="&#xE896;"
+                        Style="{StaticResource SettingsEntryIconStyle}"/>
+              <TextBlock Grid.Column="1" Text="{x:Bind local:Loc.T('Update')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Grid.Column="2" Style="{StaticResource SettingChevronStyle}"/>
+            </Grid>
+          </Button>
+
+          <Button x:Name="BtnSettingsAbout"
+                  Style="{StaticResource SettingRowButtonStyle}"
+                  MinHeight="40" Click="OpenAbout_Click"
+                  AutomationProperties.AutomationId="BtnSettingsAbout"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('About')}">
+            <Grid Style="{StaticResource SettingsEntryRowStyle}">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <FontIcon Grid.Column="0" Glyph="&#xE946;"
+                        Style="{StaticResource SettingsEntryIconStyle}"/>
+              <TextBlock Grid.Column="1" Text="{x:Bind local:Loc.T('About')}"
+                         Style="{StaticResource SettingLabelStyle}"/>
+              <TextBlock Grid.Column="2" Style="{StaticResource SettingChevronStyle}"/>
             </Grid>
           </Button>
         </StackPanel>

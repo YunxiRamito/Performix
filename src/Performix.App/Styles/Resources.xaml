@@ -98,11 +98,12 @@
        {ThemeResource}, so they follow the element theme instead.) -->
   <CornerRadius x:Key="AppControlCornerRadius">4</CornerRadius>
   <CornerRadius x:Key="AppOverlayCornerRadius">6</CornerRadius>
-  <!-- Selected tile fill: one shared brush because the 15 % accent tint is alpha-blended and
-       therefore reads correctly on both the dark and the light card. AppearanceService
-       recolours it when the accent changes. The *idle* tile fill cannot be shared (white 8 %
-       over a dark card / black 6 % over a light card), so it lives in the theme dictionaries
-       as TileIdleFillBrush — see the "APPEARANCE BRUSHES" block there. -->
+  <!-- Selected tile fill: ONE shared brush, re-coloured by AppearanceService (ApplyTileSelectedFill)
+       as the accent at 15 % pre-composited over the card colour. It must stay OPAQUE: as an
+       alpha brush the blended result followed whatever surface sat behind the tile, and on a
+       dark backdrop the selected tile's label (near-black in the light theme) disappeared —
+       UX review item 11. With the composite the label contrast is fixed at ≥ 12:1 (light) /
+       ≥ 9:1 (dark) for every accent. The literal below is only the startup fallback. -->
   <SolidColorBrush x:Key="TileSelectedFillBrush" Color="#263B82F6"/>
 
   <!-- ═══════════════════════════════════════════════════════
@@ -118,7 +119,7 @@
        it as a big heading. What a page may add is one line of subtitle (R2 item 3). -->
   <Style x:Key="PageSubtitleStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
-    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
   </Style>
 
@@ -129,7 +130,7 @@
   <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
     <Setter Property="FontWeight" Value="SemiBold"/>
-    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
     <Setter Property="VerticalAlignment" Value="Center"/>
   </Style>
 
@@ -139,7 +140,7 @@
   <Style x:Key="CardValueTextStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
     <Setter Property="FontWeight" Value="SemiBold"/>
-    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextPrimaryBrush}"/>
     <Setter Property="VerticalAlignment" Value="Center"/>
     <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
   </Style>
@@ -154,7 +155,7 @@
 
   <Style x:Key="StatusTextStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
-    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
     <Setter Property="VerticalAlignment" Value="Center"/>
     <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
   </Style>
@@ -184,7 +185,7 @@
 
   <Style x:Key="BodyTextStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
-    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
   </Style>
 
@@ -271,10 +272,10 @@
        No outer Border: the Button itself owns the tile surface (P3).
 
        This is the ONE performance-mode control: home and tuning both render it as
-       "icon above / label below" with the same selected state — #263B82F6 fill and a
-       #3B82F6 1 px outline, icon turning accent only while selected. The hex pairs are
-       repeated at the call sites because x:Bind function arguments cannot take a
-       StaticResource; keep them identical when adding a tile.
+       "icon above / label below" with the same selected state — a 15 % accent tint over the
+       card (opaque, see TileSelectedFillBrush) and a 1 px accent outline, icon turning accent
+       only while selected. The hex pairs are repeated at the call sites because x:Bind function
+       arguments cannot take a StaticResource; keep them identical when adding a tile.
        ═══════════════════════════════════════════════════════ -->
   <Style x:Key="ModeTileStackStyle" TargetType="StackPanel">
     <Setter Property="Spacing" Value="{StaticResource GapInline}"/>
@@ -492,11 +493,15 @@
        hover/pressed. No border, so the dialog keeps a single border language.
        ═══════════════════════════════════════════════════════ -->
   <Style x:Key="PrimaryButtonStyle" TargetType="Button">
-    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
-    <Setter Property="Foreground" Value="#FFFFFFFF"/>
+    <!-- Theme-aware: AccentFillColorDefaultBrush / TextOnAccentFillColorPrimaryBrush are
+         re-derived from the accent in every theme dictionary (AppearanceService), so the
+         fill follows a light/dark switch and a custom accent instead of a frozen instance. -->
+    <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
     <Setter Property="BorderThickness" Value="0"/>
     <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
-    <Setter Property="FontSize" Value="11"/>
+    <!-- 12 = the same label size as SecondaryButtonStyle (P2: primary/secondary must agree). -->
+    <Setter Property="FontSize" Value="12"/>
     <Setter Property="FontWeight" Value="SemiBold"/>
     <Setter Property="Padding" Value="8,0"/>
     <Setter Property="MinHeight" Value="30"/>
@@ -554,9 +559,17 @@
     <Setter Property="BorderThickness" Value="1"/>
     <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
     <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
-    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextPrimaryBrush}"/>
     <Setter Property="HorizontalAlignment" Value="Stretch"/>
     <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+
+  <!-- Same metrics as SecondaryButtonStyle but no fill: a transparent surface with a strong
+       stroke. Use it where a secondary action sits on a card whose fill is nearly identical
+       to ControlFillColorDefaultBrush (the update card's "Cancel" was measured at 1.05:1). -->
+  <Style x:Key="OutlinedButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource ControlStrongStrokeColorDefaultBrush}"/>
   </Style>
 
   <!-- ═══════════════════════════════════════════════════════
@@ -576,7 +589,7 @@
 
   <Style x:Key="SettingLabelStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
-    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextPrimaryBrush}"/>
     <Setter Property="VerticalAlignment" Value="Center"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
     <Setter Property="MaxLines" Value="2"/>
@@ -596,7 +609,7 @@
 
   <Style x:Key="SettingHintStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
-    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
     <Setter Property="TextWrapping" Value="Wrap"/>
   </Style>
 
@@ -763,6 +776,19 @@
       <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="#00000000"/>
       <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="#26FFFFFF"/>
       <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="#A8A8BC"/>
+      <!-- ── THEME-AWARE PAGE TEXT TOKENS (Default = dark fallback) ───────────
+           The text styles above and the Updates page consume these through
+           {ThemeResource}, so a light/dark switch re-resolves them instead of
+           keeping a frozen brush instance. Measured against the Fluent card brush
+           (Light #FBFBFB, Dark #2B2B2B):
+             PageTextPrimaryBrush    Light 16.8:1  Dark 12.7:1
+             PageTextSecondaryBrush  Light 10.1:1  Dark  6.1:1
+             DangerTextBrush         Light  5.5:1  Dark  7.0:1
+           DangerTextBrush is a fault colour only (ADR-0003 D5). -->
+      <SolidColorBrush x:Key="PageTextPrimaryBrush"   Color="#F2F2F2"/>
+      <SolidColorBrush x:Key="PageTextSecondaryBrush" Color="#A8A8BC"/>
+      <SolidColorBrush x:Key="DangerTextBrush"        Color="#FF99A4"/>
+      <SolidColorBrush x:Key="ProgressTrackBrush"     Color="#45454F"/>
     </ResourceDictionary>
     <ResourceDictionary x:Key="Dark">
       <Color x:Key="SystemAccentColor">#3B82F6</Color>
@@ -823,6 +849,11 @@
       <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="#00000000"/>
       <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="#26FFFFFF"/>
       <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="#A8A8BC"/>
+      <!-- THEME-AWARE PAGE TEXT TOKENS — Dark (same values as Default). -->
+      <SolidColorBrush x:Key="PageTextPrimaryBrush"   Color="#F2F2F2"/>
+      <SolidColorBrush x:Key="PageTextSecondaryBrush" Color="#A8A8BC"/>
+      <SolidColorBrush x:Key="DangerTextBrush"        Color="#FF99A4"/>
+      <SolidColorBrush x:Key="ProgressTrackBrush"     Color="#45454F"/>
     </ResourceDictionary>
     <ResourceDictionary x:Key="Light">
       <Color x:Key="SystemAccentColor">#3B82F6</Color>
@@ -889,6 +920,13 @@
       <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="#0F000000"/>
       <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="#33000000"/>
       <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="#3F3F46"/>
+      <!-- THEME-AWARE PAGE TEXT TOKENS — Light (measured pairs, see the Default block). -->
+      <SolidColorBrush x:Key="PageTextPrimaryBrush"   Color="#1A1A1E"/>
+      <SolidColorBrush x:Key="PageTextSecondaryBrush" Color="#3F3F46"/>
+      <SolidColorBrush x:Key="DangerTextBrush"        Color="#C42B1C"/>
+      <SolidColorBrush x:Key="ProgressTrackBrush"     Color="#E4E4EA"/>
+      <!-- The accent-button pair is re-derived from the accent by AppearanceService; the
+           HighContrast slot deliberately replaces it with the system highlight colours. -->
     </ResourceDictionary>
     <ResourceDictionary x:Key="HighContrast">
       <!-- ── APPEARANCE BRUSHES (tiles / chips) — High contrast set ───────────
@@ -903,6 +941,13 @@
       <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="Transparent"/>
       <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="{ThemeResource SystemColorWindowTextColor}"/>
       <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <!-- THEME-AWARE PAGE TEXT TOKENS — HighContrast: system colours only. -->
+      <SolidColorBrush x:Key="PageTextPrimaryBrush"   Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="PageTextSecondaryBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="DangerTextBrush"        Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="ProgressTrackBrush"     Color="{ThemeResource SystemColorButtonFaceColor}"/>
+      <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="{ThemeResource SystemColorHighlightTextColor}"/>
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
 

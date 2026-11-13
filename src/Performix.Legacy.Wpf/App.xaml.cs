@@ -126,6 +126,10 @@ namespace PreySense.Frontend
             Services.LocalizationService.Initialize();
             _ = Task.Run(PreySense.Overlay.WinRing0Cleanup.RemoveInstalledDriver);
 
+            // First run defaults to "Run on Startup" on (tray only, --minimized); a saved
+            // answer always wins. Best effort — a failure never blocks startup.
+            _ = Task.Run(Services.StartupTaskService.ResolveStartupPreference);
+
             // Start cross-process show event listener
             try
             {

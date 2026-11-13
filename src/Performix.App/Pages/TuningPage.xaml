@@ -144,14 +144,9 @@
                 Padding="12,10,12,12">
     <StackPanel Spacing="12">
 
-      <!-- ══════════════════════════════════════════════════════════════
-           0. PAGE SUBTITLE
-           The shell title bar already says "调校"; a second 16 DIP heading on the page
-           repeated it and ate window budget on a 280 DIP window. Pages show one 11 DIP
-           subtitle line and nothing else (R2 item 2 of the second review).
-           ══════════════════════════════════════════════════════════════ -->
-      <TextBlock Text="{x:Bind PageSubtitle}" Style="{StaticResource PageSubtitleStyle}"
-                 AutomationProperties.AutomationId="TxtTuningSubtitle"/>
+      <!-- No page subtitle: the shell title bar already says "调校", and every group below has
+           its own section title (docs\UI-DESIGN-RULES.md §7 — no description text used to fill
+           a layout). -->
 
       <!-- ══════════════════════════════════════════════════════════════
            1. LIVE STATUS BAR (read only, pipe telemetry)
@@ -169,6 +164,9 @@
           </Grid.ColumnDefinitions>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <!-- UX review item 15: the freshness line. Four numbers on screen with no age is
+                 indistinguishable from four numbers that stopped updating. -->
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
 
@@ -223,6 +221,16 @@
                          Style="{StaticResource UnitTextStyle}"/>
             </StackPanel>
           </StackPanel>
+
+          <!-- Freshness: "Updated 1 s ago", or a stale / read-failed sentence in place of a
+               number the user would otherwise trust. Text and colour are set by the page. -->
+          <TextBlock x:Name="TxtLiveStamp" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                     FontSize="11"
+                     TextWrapping="Wrap"
+                     Foreground="{StaticResource TextMutedBrush}"
+                     Margin="0,2,0,0"
+                     AutomationProperties.AutomationId="TxtLiveStamp"
+                     AutomationProperties.LiveSetting="Polite"/>
         </Grid>
       </Border>
 
@@ -391,16 +399,31 @@
                       AutomationProperties.Name="{x:Bind local:Loc.T('Boost Mode')}"/>
           </Grid>
 
-          <!-- EPP -->
+          <!-- EPP — UX review item 10: "core parking" and "EPP" are Windows power-management
+               terms with no meaning to most users, so each of the three parameters carries an
+               info glyph whose tooltip says what it does and which direction is cheaper. The
+               explanation stays off the card (docs\UI-DESIGN-RULES.md §7.1). -->
           <Grid ColumnSpacing="8">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="104"/>
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="72"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('EPP preference')}"
-                       Style="{StaticResource TuningRowLabelStyle}"
-                       ToolTipService.ToolTip="{x:Bind local:Loc.T('EPP preference (0 perf - 100 power)')}"/>
+            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('EPP preference')}"
+                         Style="{StaticResource TuningRowLabelStyle}"
+                         AutomationProperties.AutomationId="LblCpuEpp"
+                         AutomationProperties.HelpText="{x:Bind local:Loc.T('Energy Performance Preference: 0 leans towards performance, 100 towards power saving. Windows scales between the two.')}"/>
+              <FontIcon Grid.Column="1" FontFamily="Segoe Fluent Icons" Glyph="&#xE946;" FontSize="12"
+                        Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"
+                        AutomationProperties.AccessibilityView="Raw"
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Energy Performance Preference: 0 leans towards performance, 100 towards power saving. Windows scales between the two.')}"
+                        AutomationProperties.AutomationId="HintCpuEpp"/>
+            </Grid>
             <Slider Grid.Column="1" Style="{StaticResource TuningSliderStyle}"
                     Minimum="0" Maximum="100" StepFrequency="1"
                     Value="{x:Bind CpuEpp, Mode=TwoWay}"
@@ -420,8 +443,21 @@
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="72"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Core parking min (%)')}"
-                       Style="{StaticResource TuningRowLabelStyle}"/>
+            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Core parking min (%)')}"
+                         Style="{StaticResource TuningRowLabelStyle}"
+                         AutomationProperties.AutomationId="LblCpuCoreParkMin"
+                         AutomationProperties.HelpText="{x:Bind local:Loc.T('Windows keeps at least this share of cores awake. Lower values let more cores sleep: less power, less performance headroom.')}"/>
+              <FontIcon Grid.Column="1" FontFamily="Segoe Fluent Icons" Glyph="&#xE946;" FontSize="12"
+                        Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"
+                        AutomationProperties.AccessibilityView="Raw"
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Windows keeps at least this share of cores awake. Lower values let more cores sleep: less power, less performance headroom.')}"
+                        AutomationProperties.AutomationId="HintCpuCoreParkMin"/>
+            </Grid>
             <Slider Grid.Column="1" Style="{StaticResource TuningSliderStyle}"
                     Minimum="0" Maximum="100" StepFrequency="1"
                     Value="{x:Bind CpuCoreParkMin, Mode=TwoWay}"
@@ -441,8 +477,21 @@
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="72"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Core parking max (%)')}"
-                       Style="{StaticResource TuningRowLabelStyle}"/>
+            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Core parking max (%)')}"
+                         Style="{StaticResource TuningRowLabelStyle}"
+                         AutomationProperties.AutomationId="LblCpuCoreParkMax"
+                         AutomationProperties.HelpText="{x:Bind local:Loc.T('The most cores Windows may park. 100 % keeps every core available; lower it only when you want a hard cap on parked cores.')}"/>
+              <FontIcon Grid.Column="1" FontFamily="Segoe Fluent Icons" Glyph="&#xE946;" FontSize="12"
+                        Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"
+                        AutomationProperties.AccessibilityView="Raw"
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('The most cores Windows may park. 100 % keeps every core available; lower it only when you want a hard cap on parked cores.')}"
+                        AutomationProperties.AutomationId="HintCpuCoreParkMax"/>
+            </Grid>
             <Slider Grid.Column="1" Style="{StaticResource TuningSliderStyle}"
                     Minimum="0" Maximum="100" StepFrequency="1"
                     Value="{x:Bind CpuCoreParkMax, Mode=TwoWay}"

@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Services — settings sub-page (settings IA v2).
+
+  THE VENDOR IS THE PAGE. The identity is probed (Services\OemBrandProbe: Win32_ComputerSystem /
+  Win32_BaseBoard Manufacturer via the BIOS registry keys) and one formatted key drives all three
+  places the brand appears:
+
+    shell title bar + the Settings-entry label    "{0} services"  →  "ASUS 服务" / "Acer 服务"
+    this page's row label                          "{0} services"  (same key, same string)
+    the service list heading                       "Detected {0} services"
+
+  An unidentified machine gets the neutral "Vendor services" wording plus the reason, never a
+  guessed brand name. The list itself is filtered by brand (OemBrandCatalog), so an Acer service
+  list can never appear on a Lenovo.
+
+  COPY DISCIPLINE (docs\UI-DESIGN-RULES.md §7): icon + name + control, nothing else. The two
+  lines under the switch are the documented exceptions — the action is risky/irreversible and its
+  effect is not obvious:
+
+    1. what stopping the OEM services costs (the vendor's own app, its hotkeys, part of the OEM
+       fan control). Muted while it is a preview or a settled fact; the danger colour is used
+       only while the change is being applied, so arriving on the page never looks like a fault
+       (UX review #3),
+    2. PSSvc is never stopped or disabled (fan RPM and mode switching depend on it),
+    3. why the switch is disabled when the vendor is unknown or has no backend in this build.
+
+  Each service row carries one short purpose line for the services this build can explain, and
+  the state column tells "not running", "stopped by Performix" and "not installed" apart (UX
+  review #7 / #8). A service whose purpose is unknown says so instead of guessing.
+-->
+<Page
+    x:Class="Predex.WinUI.Pages.ServicesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:Predex.WinUI"
+    mc:Ignorable="d"
+    Background="Transparent"
+    IsTabStop="True" UseSystemFocusVisuals="False"
+    AutomationProperties.AutomationId="PageServices"
+    AutomationProperties.Name="{x:Bind RowLabel}">
+
+  <Page.Resources>
+    <Style x:Key="ServiceNameStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+      <Setter Property="Foreground" Value="{ThemeResource PageTextPrimaryBrush}"/>
+      <Setter Property="TextWrapping" Value="NoWrap"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+      <Setter Property="MaxLines" Value="1"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <Style x:Key="ServiceStateStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+      <Setter Property="Foreground" Value="{ThemeResource PageTextSecondaryBrush}"/>
+      <Setter Property="TextAlignment" Value="Right"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="MaxLines" Value="1"/>
+    </Style>
+
+    <!-- The one-line purpose under a service name: 11 DIP, muted, single line. It is the row's
+         only second line and it is why the row exists at all (UX review #7). -->
+    <Style x:Key="ServicePurposeStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+      <Setter Property="TextWrapping" Value="NoWrap"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+      <Setter Property="MaxLines" Value="1"/>
+    </Style>
+  </Page.Resources>
+
+  <ScrollViewer Padding="12,10,12,12"
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Stretch">
+
+      <!-- ═══ THE SETTING: brand-named row + switch ═══ -->
+      <Border Style="{StaticResource CardStyle}">
+        <StackPanel Spacing="0">
+
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+
+            <FontIcon Grid.Column="0" Glyph="&#xE90F;"
+                      FontFamily="Segoe Fluent Icons"
+                      FontSize="{StaticResource FontSizePageTitle}"
+                      Foreground="{StaticResource TextSecondaryBrush}"
+                      VerticalAlignment="Center"
+                      AutomationProperties.AccessibilityView="Raw"/>
+
+            <TextBlock Grid.Column="1" Text="{x:Bind RowLabel}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+
+            <ToggleSwitch x:Name="ChkAcerServices" Grid.Column="2"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          IsOn="{x:Bind Vm.IsAcerServicesEnabled, Mode=OneWay}"
+                          IsEnabled="{x:Bind CanManage, Mode=OneWay}"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="AcerServices_Toggled"
+                          AutomationProperties.AutomationId="ChkAcerServices"
+                          AutomationProperties.Name="{x:Bind RowLabel}"/>
+          </Grid>
+
+          <!-- Exception 1: the consequence, before the click.
+               UX review items 2 + 3: the red line is for the risky MOMENT, not for page load.
+                 • services running            → muted preview of what the switch would cost
+                 • stopped, settled            → muted statement of the current fact
+                 • just stopped in this session, or a toggle in flight → danger colour
+               A red wall on arrival reads as "something already went wrong", which is exactly
+               what the review reported; the fact is still on screen, in the secondary colour. -->
+          <TextBlock Text="{x:Bind ConsequenceText, Mode=OneWay}"
+                     FontSize="{StaticResource FontSizeCaption}"
+                     TextWrapping="Wrap"
+                     Foreground="{ThemeResource PageTextSecondaryBrush}"
+                     Margin="0,6,0,0"
+                     Visibility="{x:Bind ConsequenceVisibility, Mode=OneWay}"
+                     AutomationProperties.AutomationId="TxtAcerServicesConsequence"/>
+
+          <TextBlock Text="{x:Bind StoppedText, Mode=OneWay}"
+                     FontSize="{StaticResource FontSizeCaption}"
+                     TextWrapping="Wrap"
+                     Foreground="{ThemeResource PageTextSecondaryBrush}"
+                     Margin="0,6,0,0"
+                     Visibility="{x:Bind StoppedVisibility, Mode=OneWay}"
+                     AutomationProperties.AutomationId="TxtAcerServicesStopped"/>
+
+          <TextBlock Text="{x:Bind StoppedText, Mode=OneWay}"
+                     FontSize="{StaticResource FontSizeCaption}"
+                     TextWrapping="Wrap"
+                     Foreground="{ThemeResource DangerTextBrush}"
+                     Margin="0,6,0,0"
+                     Visibility="{x:Bind DangerVisibility, Mode=OneWay}"
+                     AutomationProperties.AutomationId="TxtAcerServicesDanger"
+                     AutomationProperties.LiveSetting="Polite"/>
+
+          <!-- Exception 2: the promise that must stay visible. -->
+          <TextBlock Text="{x:Bind local:Loc.T('PSSvc is never stopped or disabled: fan RPM and mode switching depend on it.')}"
+                     Style="{StaticResource SettingHintStyle}"
+                     Margin="0,6,0,0"
+                     AutomationProperties.AutomationId="TxtPssvcProtection"/>
+
+          <!-- Exception 3: only while the switch is disabled. -->
+          <TextBlock Text="{x:Bind BlockedReason}"
+                     Style="{StaticResource SettingHintStyle}"
+                     Margin="0,6,0,0"
+                     Visibility="{x:Bind BlockedVisibility, Mode=OneWay}"
+                     AutomationProperties.AutomationId="TxtServicesBlocked"/>
+        </StackPanel>
+      </Border>
+
+      <!-- ═══ WHAT WAS FOUND: read-only, brand-filtered ═══ -->
+      <Border Style="{StaticResource CardStyle}">
+        <StackPanel Spacing="0">
+
+          <Grid ColumnSpacing="8" Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{x:Bind ListTitle}"
+                       Style="{StaticResource SectionTitleStyle}"
+                       TextTrimming="CharacterEllipsis" MaxLines="1"
+                       AutomationProperties.AutomationId="TxtServiceListTitle"/>
+            <TextBlock Grid.Column="1" Text="{x:Bind ServiceCountText}"
+                       Style="{StaticResource ServiceStateStyle}"
+                       AutomationProperties.AutomationId="TxtServiceCount"/>
+          </Grid>
+
+          <!-- One row per detected service; built in code (the list is machine data, not XAML). -->
+          <StackPanel x:Name="PnlServices" Spacing="0"
+                      AutomationProperties.AutomationId="PnlServices"/>
+
+          <TextBlock Text="{x:Bind EmptyText}"
+                     Style="{StaticResource SettingHintStyle}"
+                     Visibility="{x:Bind EmptyVisibility, Mode=OneWay}"
+                     AutomationProperties.AutomationId="TxtServicesEmpty"/>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</Page>

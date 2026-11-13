@@ -1,25 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Theme page (theme-page task, UPDATE-DESIGN.md §3) — the appearance controls that used to
-  live in SettingsPage as a single "Theme" dropdown, promoted to their own page:
+  Personalisation — settings sub-page (settings IA v2). Replaces the old Theme page: the same
+  appearance controls, plus the new Interface group the design asks for.
 
-    Appearance mode  Dark / Light / Follow system      (3 tiles, same selected language as Home)
-    Window style     Windows 11 (round) / Windows 10 (square)
-    Material         Mica / Acrylic / Solid            (unsupported ones greyed, never hidden)
-    Accent colour    Follow Windows / Fixed #3B82F6 / Custom (ColorSpectrum ring + hex box,
-                     8 preset swatches are shortcuts)
-                     The primitive is Microsoft.UI.Xaml.Controls.Primitives.ColorSpectrum (the
-                     same control LightingPage.xaml uses for its colour pickers). The ColorPicker
-                     *control* pins its inner spectrum to 256 DIP and clips at 160 DIP, so the
-                     primitive is used directly. Property is Shape="Ring".
+  Card 1 · Theme      Appearance mode (Dark / Light / Follow system)
+                      Window style    (Windows 11 round / Windows 10 square)
+                      Material        (Mica / Acrylic / Solid — unsupported ones greyed, never hidden)
+                      Accent colour   (Follow Windows / Blue #3B82F6 / Custom: 160 DIP ColorSpectrum
+                                       ring + hex box + 8 preset swatches). Choosing Custom opens
+                                       the picker flyout itself; the 28 DIP swatch beside the
+                                       combo carries a pencil badge as the visible shortcut.
 
-  Every control is applied by Predex.WinUI.Services.AppearanceService the moment it changes —
-  there is no Apply button — and each change writes one line to shell.log (`appearance:`).
+  Card 2 · Interface  Four switches over the rows of the expanded home panel:
+
+                        Status bar        HomePage.TelemetryRow  (CPU / GPU fan RPM, read only)
+                        GPU bar           HomePage.GpuHeaderRow + GpuGroup
+                        Refresh rate bar  HomePage.DisplayGroup (auto-refresh + Hz + mode)
+                        Widget bar        the lighting / HUD / fans / tuning entries
+
+                      Every one of them is wired: AppearanceService.SetUiPanel writes the flag
+                      into appearance.json (the file the appearance controls already own) and
+                      raises UiPanelsChanged, HomePage hides the row immediately, and the flag
+                      is read back on the next start. The Settings entry of the widget row is
+                      deliberately outside the switch — hiding it would leave no way back in.
+
+  Every appearance control is applied by Predex.WinUI.Services.AppearanceService the moment it
+  changes — there is no Apply button — and each change writes one line to shell.log
+  (`appearance:`).
 
   Layout rules (docs\UI-DESIGN-RULES.md / SHELL-CONTRACT.md §3 + §5):
-    • one ScrollViewer, one card, the shared CardStyle padding (12) and radius (6)
-    • spacing only 4 / 6 / 12; font sizes only 11 / 12 / 16
-    • the page never repeats its title (the shell title bar already says 主题)
+    • one ScrollViewer, cards with the shared CardStyle padding (12) and radius (6)
+    • spacing only 4 / 6 / 8 / 12 / 16; font sizes only 11 / 12 / 16
+    • the page never repeats its title (the shell title bar already says 个性化)
     • text is the English source string through Loc.T(); long explanations live in a
       ToolTip on the muted info glyph (and in AutomationProperties.HelpText)
     • the tile surfaces come from resource-key brushes (TileFillBrush / TileSelectedFillBrush /
@@ -27,7 +39,7 @@
       immediately: AppearanceService recolours those shared SolidColorBrush instances.
 -->
 <Page
-    x:Class="Predex.WinUI.Pages.ThemePage"
+    x:Class="Predex.WinUI.Pages.PersonalizePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -37,7 +49,8 @@
     mc:Ignorable="d"
     Background="Transparent"
     IsTabStop="True" UseSystemFocusVisuals="False"
-    AutomationProperties.AutomationId="PageTheme" AutomationProperties.Name="{x:Bind local:Loc.T('Theme')}">
+    AutomationProperties.AutomationId="PagePersonalize"
+    AutomationProperties.Name="{x:Bind local:Loc.T('Personalisation')}">
 
   <Page.Resources>
     <Style x:Key="ThemeLabelStyle" TargetType="TextBlock">
@@ -104,24 +117,12 @@
                 VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Stretch" VerticalAlignment="Top">
 
-      <TextBlock Text="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour. Every change applies immediately.')}"
-                 Style="{StaticResource PageSubtitleStyle}"
-                 AutomationProperties.AutomationId="TxtThemeSubtitle"/>
-
+      <!-- ═══ CARD 1 · THEME ═══ -->
       <Border Style="{StaticResource CardStyle}">
         <StackPanel Spacing="0">
 
-          <Grid ColumnSpacing="4">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="Auto"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="{x:Bind local:Loc.T('Appearance')}"
-                       Style="{StaticResource SectionTitleStyle}"/>
-            <FontIcon Grid.Column="1"
-                      Style="{StaticResource ThemeHelpGlyphStyle}"
-                      ToolTipService.ToolTip="{x:Bind local:Loc.T('These are the same four controls the Windows personalisation page offers. Nothing here touches the hardware.')}"/>
-          </Grid>
+          <TextBlock Text="{x:Bind local:Loc.T('Theme')}"
+                     Style="{StaticResource SectionTitleStyle}"/>
 
           <!-- ═══ APPEARANCE MODE: 3 tiles, Home's selected language ═══ -->
           <TextBlock Text="{x:Bind local:Loc.T('Appearance mode')}"
@@ -259,10 +260,17 @@
                         AutomationProperties.AutomationId="CmbAccent"
                         AutomationProperties.Name="{x:Bind local:Loc.T('Accent colour')}">
                 <ComboBoxItem Content="{x:Bind local:Loc.T('Follow system')}" Tag="System"/>
-                <ComboBoxItem Content="{x:Bind local:Loc.T('Fixed #3B82F6')}" Tag="Fixed"/>
+                <!-- UX review item 5: a colour name, with the hex kept in parentheses (the
+                     tooltip repeats it). "Fixed #3B82F6" told a user nothing. -->
+                <ComboBoxItem Content="{x:Bind local:Loc.T('Blue (#3B82F6)')}" Tag="Fixed"
+                              ToolTipService.ToolTip="#3B82F6"/>
                 <ComboBoxItem Content="{x:Bind local:Loc.T('Custom')}" Tag="Custom"/>
               </ComboBox>
 
+              <!-- UX review item 6: the 28 DIP swatch looked like a colour sample, not a button.
+                   A pencil badge in its bottom-right corner marks it as the way into the full
+                   picker; selecting "Custom" in the combo opens the same flyout by itself, so the
+                   palette is reachable without discovering this button at all. -->
               <Button x:Name="BtnAccentSwatch" Grid.Column="1"
                       Height="28" Width="28" Padding="0"
                       CornerRadius="{ThemeResource AppControlCornerRadius}"
@@ -273,9 +281,24 @@
                       AutomationProperties.AutomationId="BtnAccentSwatch"
                       AutomationProperties.Name="{x:Bind local:Loc.T('Accent colour')}"
                       ToolTipService.ToolTip="{x:Bind local:Loc.T('Open the colour palette.')}">
-                <Border x:Name="AccentSwatchFill" Width="14" Height="14"
-                        CornerRadius="{ThemeResource AppControlCornerRadius}"
-                        Background="{StaticResource AccentBrush}"/>
+                <Grid>
+                  <Border x:Name="AccentSwatchFill" Width="14" Height="14"
+                          CornerRadius="{ThemeResource AppControlCornerRadius}"
+                          Background="{StaticResource AccentBrush}"/>
+                  <Border Width="14" Height="14"
+                          HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                          CornerRadius="7"
+                          Background="{StaticResource WindowBgBrush}"
+                          BorderBrush="{StaticResource BorderStrongBrush}"
+                          BorderThickness="1">
+                    <FontIcon Glyph="&#xE70F;"
+                              FontFamily="Segoe Fluent Icons"
+                              FontSize="11"
+                              Foreground="{StaticResource TextPrimaryBrush}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw"/>
+                  </Border>
+                </Grid>
                 <Button.Flyout>
                   <Flyout x:Name="AccentFlyout" Placement="Top" Closed="AccentFlyout_Closed">
                     <!-- Real colour picking: the ColorSpectrum primitive 160 DIP (verified size;
@@ -340,6 +363,104 @@
                   </Flyout>
                 </Button.Flyout>
               </Button>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- ═══ CARD 2 · INTERFACE (the four panel-row switches) ═══ -->
+      <Border Style="{StaticResource CardStyle}">
+        <StackPanel Spacing="0">
+
+          <Grid ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{x:Bind local:Loc.T('Interface')}"
+                       Style="{StaticResource SectionTitleStyle}"/>
+            <FontIcon Grid.Column="1"
+                      Style="{StaticResource ThemeHelpGlyphStyle}"
+                      ToolTipService.ToolTip="{x:Bind local:Loc.T('Rows of the expanded panel. Each switch hides its row immediately and is remembered.')}"/>
+          </Grid>
+
+          <!-- Status bar: the read-only fan RPM row of the expanded panel. -->
+          <Grid Style="{StaticResource SettingRowStyle}" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{x:Bind local:Loc.T('Status bar')}"
+                         Style="{StaticResource ThemeLabelStyle}"/>
+            </StackPanel>
+            <ToggleSwitch x:Name="ChkUiStatusBar" Grid.Column="1"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="UiStatusBar_Toggled"
+                          AutomationProperties.AutomationId="ChkUiStatusBar"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Status bar')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('The read-only CPU / GPU fan readout row.')}"/>
+          </Grid>
+
+          <!-- GPU bar: GPU mode header + the four tiles. -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{x:Bind local:Loc.T('GPU bar')}"
+                         Style="{StaticResource ThemeLabelStyle}"/>
+            </StackPanel>
+            <ToggleSwitch x:Name="ChkUiGpuBar" Grid.Column="1"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="UiGpuBar_Toggled"
+                          AutomationProperties.AutomationId="ChkUiGpuBar"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('GPU bar')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('The GPU mode header and the four GPU tiles.')}"/>
+          </Grid>
+
+          <!-- Refresh rate bar: auto-refresh chip + Hz picker + current display mode. -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{x:Bind local:Loc.T('Refresh rate bar')}"
+                         Style="{StaticResource ThemeLabelStyle}"/>
+            </StackPanel>
+            <ToggleSwitch x:Name="ChkUiRefreshRateBar" Grid.Column="1"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="UiRefreshRateBar_Toggled"
+                          AutomationProperties.AutomationId="ChkUiRefreshRateBar"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Refresh rate bar')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('The auto-refresh chip, the refresh-rate picker and the current display mode.')}"/>
+          </Grid>
+
+          <!-- Widget bar: the four page entries. Settings is NOT part of it. -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="132"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+              <TextBlock Text="{x:Bind local:Loc.T('Widget bar')}"
+                         Style="{StaticResource ThemeLabelStyle}"/>
+            </StackPanel>
+            <ToggleSwitch x:Name="ChkUiWidgetBar" Grid.Column="1"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="UiWidgetBar_Toggled"
+                          AutomationProperties.AutomationId="ChkUiWidgetBar"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Widget bar')}"
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('The lighting, HUD, fans and tuning entries. The Settings entry always stays.')}"/>
           </Grid>
         </StackPanel>
       </Border>

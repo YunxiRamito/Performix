@@ -13,11 +13,22 @@ namespace PreySense.Frontend.Services
         private const string TaskNamespace = "http://schemas.microsoft.com/windows/2004/02/mit/task";
 
         private static readonly StartupTaskRegistration Registration = new(RunSchtasks,
-            () => Environment.ProcessPath, () => WindowsIdentity.GetCurrent().User?.Value);
+            () => Environment.ProcessPath, () => WindowsIdentity.GetCurrent().User?.Value,
+            StartupPreferenceStore.Read, StartupPreferenceStore.Write);
 
         public static bool IsStartupEnabled() => Registration.IsEnabled();
         public static bool SetStartupEnabled(bool enable) => Registration.SetEnabled(enable);
         public static bool ReconcileExistingTask() => Registration.ReconcileExisting();
+
+        /// <summary>
+        /// Launch-time policy. Users who never touched the switch get the logon task registered
+        /// (first-run default); a saved answer always wins. Never throws: a failed registration
+        /// is logged and reported as "not enabled", it cannot abort startup.
+        /// </summary>
+        public static bool ResolveStartupPreference() => Registration.ResolveStartupPreference();
+
+        /// <summary>Remembers that the user operated the switch, so we never overrule them again.</summary>
+        public static void RecordStartupChoice(bool enable) => Registration.RecordUserChoice(enable);
 
         public static string BuildLogonTaskXml(string exePath, string userId)
         {
@@ -75,7 +86,8 @@ namespace PreySense.Frontend.Services
 
         // All reads/repairs/toggles share a lock, so an in-flight repair cannot recreate a deleted task.
         internal sealed class StartupTaskRegistration(
-            Func<string, SchtasksResult> run, Func<string?> executablePath, Func<string?> currentUser)
+            Func<string, SchtasksResult> run, Func<string?> executablePath, Func<string?> currentUser,
+            Func<bool?>? readDeclared = null, Action<bool>? writeDeclared = null)
         {
             private readonly object _gate = new();
 
@@ -84,12 +96,52 @@ namespace PreySense.Frontend.Services
                 lock (_gate) return TryRead(out string xml) && CanLaunch(xml);
             }
 
-            public bool ReconcileExisting()
+            /// <summary>
+            /// First-run rule: only an explicit "off" suppresses automatic registration.
+            /// Kept as a pure function so the decision table is testable on its own.
+            /// </summary>
+            internal static bool ShouldRegister(bool? declaredPreference) => declaredPreference != false;
+
+            public bool ReconcileExisting() => Reconcile(allowCreate: false);
+
+            public bool ResolveStartupPreference()
+            {
+                try
+                {
+                    bool? declared = ReadDeclared();
+                    lock (_gate)
+                    {
+                        // An explicit "off" is final: report the real state, never recreate.
+                        if (!ShouldRegister(declared)) return IsEnabled();
+                        bool enabled = Reconcile(allowCreate: true);
+                        // Record the automatic answer only after it worked, so a failed
+                        // registration is retried on the next launch instead of being frozen.
+                        if (enabled && declared is null) WriteDeclared(true);
+                        return enabled;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Registration must never break startup; the switch simply stays off.
+                    AppLogger.Error($"Startup preference resolve failed: {ex}");
+                    return false;
+                }
+            }
+
+            /// <summary>Stores the user's stated intent, even when the task operation failed.</summary>
+            public void RecordUserChoice(bool enable)
+            {
+                try { WriteDeclared(enable); }
+                catch (Exception ex) { AppLogger.Error($"Startup preference save failed: {ex}"); }
+            }
+
+            public bool Reconcile(bool allowCreate)
             {
                 lock (_gate)
                 {
-                    // Never create a missing entry or re-enable a task/trigger disabled by its owner.
-                    if (!TryRead(out string xml) || !IsEnabledTaskXml(xml, currentUser())) return false;
+                    // Never re-enable a task or trigger disabled by its owner.
+                    if (!TryRead(out string xml)) return allowCreate && RegisterCurrent();
+                    if (!IsEnabledTaskXml(xml, currentUser())) return false;
                     string? exe = executablePath();
                     string? user = currentUser();
                     if (!string.IsNullOrWhiteSpace(exe) && !string.IsNullOrWhiteSpace(user) &&
@@ -99,6 +151,25 @@ namespace PreySense.Frontend.Services
                     }
                     return CanLaunch(xml);
                 }
+            }
+
+            private bool RegisterCurrent()
+            {
+                string? exe = executablePath();
+                string? user = currentUser();
+                return !string.IsNullOrWhiteSpace(exe) && !string.IsNullOrWhiteSpace(user) && Register(exe, user);
+            }
+
+            private bool? ReadDeclared()
+            {
+                try { return readDeclared?.Invoke(); }
+                catch (Exception ex) { AppLogger.Error($"Startup preference read failed: {ex}"); return null; }
+            }
+
+            private void WriteDeclared(bool enable)
+            {
+                try { writeDeclared?.Invoke(enable); }
+                catch (Exception ex) { AppLogger.Error($"Startup preference save failed: {ex}"); }
             }
 
             public bool SetEnabled(bool enable)

@@ -103,6 +103,9 @@ namespace PreySense.Frontend.ViewModels
                 var result = await Task.Run(() =>
                 {
                     bool success = StartupTaskService.SetStartupEnabled(enable);
+                    // Recorded either way: the user stated a preference, so a failed task
+                    // operation must not be "fixed" by turning the feature back on later.
+                    StartupTaskService.RecordStartupChoice(enable);
                     // Create already verifies XML readback; a successful delete is serialized with repair.
                     return (success, enabled: success ? enable : StartupTaskService.IsStartupEnabled());
                 });
