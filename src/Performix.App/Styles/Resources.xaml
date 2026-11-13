@@ -560,6 +560,120 @@
   </Style>
 
   <!-- ═══════════════════════════════════════════════════════
+       SETTINGS ROWS (Settings hub + General + Power)
+       These row styles used to live inside SettingsPage.xaml. The settings tree became a
+       directory page plus sub-pages (UI-ARCH §1/§2, IA phase 1), so the row rhythm, the
+       label column, the 132 DIP control column and the navigation-row hit target moved
+       here once: the hub, General and Power must not drift apart.
+       Every value is an existing token — no new colour, radius, font size or spacing.
+       36 DIP = one regular row; 44 DIP = one navigation row (title + subtitle).
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="SettingRowStyle" TargetType="Grid">
+    <Setter Property="MinHeight" Value="36"/>
+    <Setter Property="ColumnSpacing" Value="{StaticResource GapGroup}"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+  </Style>
+
+  <Style x:Key="SettingLabelStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+    <Setter Property="MaxLines" Value="2"/>
+    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+  </Style>
+
+  <!-- Info glyph: the long explanation is the ToolTip, never a paragraph on the card. -->
+  <Style x:Key="SettingHelpGlyphStyle" TargetType="FontIcon">
+    <Setter Property="FontFamily" Value="Segoe Fluent Icons"/>
+    <Setter Property="Glyph" Value="&#xE946;"/>
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="HorizontalAlignment" Value="Left"/>
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="AutomationProperties.AccessibilityView" Value="Raw"/>
+  </Style>
+
+  <Style x:Key="SettingHintStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
+
+  <Style x:Key="SettingComboStyle" TargetType="ComboBox">
+    <!-- R5: a pointer click focuses a ComboBox and WinUI then paints the white system focus
+         ring around it; the combos here are pointer-first, so the ring is off. Keyboard
+         users still see the caret/open state, and Tab order is unchanged. -->
+    <Setter Property="UseSystemFocusVisuals" Value="False"/>
+    <Setter Property="FocusVisualPrimaryThickness" Value="0"/>
+    <Setter Property="FocusVisualSecondaryThickness" Value="0"/>
+    <Setter Property="Height" Value="30"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+
+  <!-- X4: one switch-state vocabulary for the whole app: 开 / 关, 12 px Secondary.
+       The text sits right of the switch (ToggleSwitch renders OnContent there). -->
+  <Style x:Key="SettingSwitchStyle" TargetType="ToggleSwitch">
+    <Setter Property="MinWidth" Value="0"/>
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="HorizontalAlignment" Value="Right"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+
+  <!-- Row that navigates to a page instead of owning a value: full-width hit target, hover
+       fill, no chevron glyph from a font icon — a plain "›" character. -->
+  <Style x:Key="SettingRowButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="UseSystemFocusVisuals" Value="False"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid>
+            <Border x:Name="Bg" Background="Transparent"
+                    CornerRadius="{ThemeResource AppControlCornerRadius}"/>
+            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}"/>
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgHoverBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- The › at the end of a navigation row. One style so every row's chevron lines up. -->
+  <Style x:Key="SettingChevronStyle" TargetType="TextBlock">
+    <Setter Property="Text" Value="&#x203A;"/>
+    <Setter Property="FontSize" Value="{StaticResource FontSizePageTitle}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="AutomationProperties.AccessibilityView" Value="Raw"/>
+  </Style>
+
+  <!-- ═══════════════════════════════════════════════════════
        CARD (only for "floating above the surface": page bodies)
        THE card padding token. Pages must not override Padding on a card: the lighting
        page had one card at 8 and every other card at 12, which is why its three text

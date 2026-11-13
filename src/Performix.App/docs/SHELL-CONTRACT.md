@@ -27,8 +27,12 @@ App.CurrentShell?.NavigateTo("Tuning");   // key 见下表
   **S6 起**：隐藏到托盘时整棵页面树会被销毁（清 `PageHost` + 丢所有页面实例，见 `S6-REPORT.md §3`），
   下次唤起时按上次的 nav key 重建当前页、再按它的内容量算窗口高度。所以页内未保存的临时草稿会丢，
   需要跨隐藏保留的状态请写进 `ShellUiState` 或 Core 配置。
-- 非 Home 页面会自动把壳切到展开态；标题栏变成「返回 + 页面名」，返回键 = `NavigateTo("Home")`。
-- 新增页面必须同时改 `ShellWindow.PageTypes` 与 `PageTitleKeys`（集成 agent 收口，S1 后不动）。
+- 非 Home 页面会自动把壳切到展开态；标题栏变成「返回 + 页面名」。
+- **返回目标**（IA 第一阶段）：`ShellWindow.PageBackTargets` 是一张「页面 → 返回目标」表 ——
+  `General / Power / Theme / Meta → Settings`，其余页面按导航历史回上一跳（`Fans` 有首页 / 调校两个入口），
+  没有历史就回 `Home`。设置子页的跳转**不**入历史栈，表和栈因此不会互相漂移。
+- 新增页面必须同时改 `ShellWindow.PageTypes` 与 `PageTitleKeys`（集成 agent 收口，S1 后不动）；
+  设置子页还要在 `PageBackTargets` 里加一行。
 
 | nav key | 期望页面类 | 需要绑的 ViewModel 属性（最小集） |
 |---|---|---|
@@ -37,7 +41,11 @@ App.CurrentShell?.NavigateTo("Tuning");   // key 见下表
 | `Fans` | `Pages.FansPage` | `FanCurveModeNames`（其余逻辑在页面代码后置） |
 | `Lighting` | `Pages.LightingPage` | `LightingDevices` `SelectedLightingDevice` `LightingDeviceModes` `LightingLedEditors` `DeviceLighting*` `KbdTimeoutSeconds` `RgbBrightness` `RgbSpeed` |
 | `Overlay` | `Pages.OverlayPage` | **不需要 ViewModel 属性**（S6 更正）：WPF `MetricsWindow` 的模型是 Core 的 `OverlayConfig`，页面代码后置经 `PreySense.Overlay.AppConfig` / `HardwareOverlayManager` 读写；原表里的 `OverlayMetricSlots` 在 WPF 的 `MainViewModel` 里不存在 |
-| `Settings` | `Pages.SettingsPage` | `SelectedThemeIndex` `IsRunOnStartupEnabled` `ToggleRunOnStartupCommand` `IsAcerServicesEnabled` `IsBatteryLimitEnabled` `UsbChargingCutoffPercent` `SourceProfileNames` `BatteryPowerModeIndex` `AcPowerModeIndex` |
+| `Settings` | `Pages.SettingsPage` | 目录页：无 ViewModel 属性，四行导航（`General` / `Power` / `Theme` / `Meta`） |
+| `General` | `Pages.GeneralPage` | `IsRunOnStartupEnabled` `CanChangeRunOnStartup` `ToggleRunOnStartupCommand` `IsAcerServicesEnabled` `ToggleAcerServicesDebloaterCommand` |
+| `Power` | `Pages.PowerPage` | `IsBatteryLimitEnabled` `ToggleBatteryLimitCommand` `UsbChargingCutoffPercent` `CanChangeUsbCharging` `UsbChargingStatus` `SourceProfileNames` `BatteryPowerModeIndex` `AcPowerModeIndex` `IsBatteryEnergySaverEnabled` |
+| `Theme` | `Pages.ThemePage` | 无 ViewModel 属性（`AppearanceService` 直接读写） |
+| `Meta` | `Pages.MiniMetaPage` | 无 ViewModel 属性（`Services\AboutInfo` + `UpdateCheckService`） |
 
 ## 3. 页面骨架
 
@@ -66,6 +74,7 @@ public sealed partial class XxxPage : Page
 |---|---|
 | 卡片（浮层用） | `CardStyle`（圆角 6 / 描边 1 / Padding 12） |
 | 整块按钮 | `ModeTileButtonStyle`（圆角 6）、`EntryButtonStyle`（28 高，圆角 4） |
+| 设置行 | `SettingRowStyle`（36 高）`SettingLabelStyle` `SettingHelpGlyphStyle` `SettingHintStyle` `SettingComboStyle` `SettingSwitchStyle` `SettingRowButtonStyle`（导航行）`SettingChevronStyle`（`Styles\Resources.xaml`，设置目录页 / 常规 / 电源共用；别再在页面里私造行样式） |
 | 文本 | `PageTitleStyle`(16) `SectionTitleStyle`(12) `StatusTextStyle`(11) `CaptionTextStyle`(11) `BodyTextStyle`(11) |
 | 颜色 | `TextPrimaryBrush` `TextSecondaryBrush` `TextMutedBrush` `AccentBrush` `BorderSubtleBrush` `SectionBgBrush` |
 | 布尔→刷子/可见性 | `local:Converters.BoolToBrush / BoolToVis / Telemetry`（`Converters.cs`） |
@@ -76,6 +85,9 @@ public sealed partial class XxxPage : Page
 
 - 每个可点元素给 `AutomationProperties.AutomationId`（截图脚本靠它点击）。
 - 截图：`pwsh -File docs\s1-verify.ps1 -Exe "<输出>\Predex.exe"`（`--no-autohide --trace`，PrintWindow + UIA）。
+- 设置 IA 阶段一：`pwsh -NoProfile -File src\Performix.App\docs\ia-verify.ps1 -Exe "<输出>\Performix.exe"`
+  拍 `docs\ia-settings-hub.png` / `ia-general.png` / `ia-back-to-settings.png` / `ia-power.png` / `ia-meta.png`，
+  并打印 `shell.log` 里 `nav: navigate … -> …` / `nav: back … -> …` 的证据行。
 - 折叠态首图要等 4–5 s 让遥测出首帧，否则温度是 `—`。
 
 ## 7. S1 已踩过的两个坑（别再踩）

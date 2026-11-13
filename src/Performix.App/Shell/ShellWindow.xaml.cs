@@ -39,6 +39,9 @@ namespace Predex.WinUI.Shell
     public sealed partial class ShellWindow : Window
     {
         // ── Page registry ────────────────────────────────────────────────────────
+        // Settings is a directory page now: General / Power / Theme / Meta are its sub-pages
+        // (IA phase 1, docs\design\UI-ARCH.md §1/§2). Every page must appear here and in
+        // PageTitleKeys, or NavigateTo silently drops the tag.
         private static readonly Dictionary<string, Type> PageTypes = new(StringComparer.Ordinal)
         {
             ["Home"] = typeof(HomePage),
@@ -47,7 +50,10 @@ namespace Predex.WinUI.Shell
             ["Lighting"] = typeof(LightingPage),
             ["Overlay"] = typeof(OverlayPage),
             ["Settings"] = typeof(SettingsPage),
+            ["General"] = typeof(GeneralPage),
+            ["Power"] = typeof(PowerPage),
             ["Theme"] = typeof(ThemePage),
+            ["Meta"] = typeof(MiniMetaPage),
         };
 
         // English source keys; resolved through LocalizationService on the way out.
@@ -59,7 +65,24 @@ namespace Predex.WinUI.Shell
             ["Lighting"] = "Lighting",
             ["Overlay"] = "Overlay",
             ["Settings"] = "Settings",
+            ["General"] = "General",
+            ["Power"] = "Power Profiles",
             ["Theme"] = "Theme",
+            ["Meta"] = "Updates and About",
+        };
+
+        // ── Back targets ─────────────────────────────────────────────────────────
+        // One row per page that has a fixed parent: the four Settings sub-pages return to
+        // Settings (the directory page). Every other page either comes from the history below
+        // (Fans has two entries: Home and Tuning) or returns Home. A map instead of a chain of
+        // ifs, and the authoritative source for the settings tree — the history never records
+        // a hop into a page listed here, so the two cannot fight (PAGES-TREE.md "返回行为").
+        private static readonly Dictionary<string, string> PageBackTargets = new(StringComparer.Ordinal)
+        {
+            ["General"] = "Settings",
+            ["Power"] = "Settings",
+            ["Theme"] = "Settings",
+            ["Meta"] = "Settings",
         };
 
         // ── DIP sizes (converted with the window DPI before reaching AppWindow) ──
@@ -100,9 +123,11 @@ namespace Predex.WinUI.Shell
 
         private readonly Dictionary<string, Page> _pages = new(StringComparer.Ordinal);
         /// <summary>
-        /// Back-button targets, one entry per user-initiated page hop. Settings → Theme pushes
-        /// "Settings", so the back button returns to Settings instead of jumping to Home
-        /// (SHELL-CONTRACT §2 says back = Home, which stays true for the home entry row).
+        /// Back-button history for pages that have no fixed parent in
+        /// <see cref="PageBackTargets"/>. Fans is the only page with two entries (Home and
+        /// Tuning), so its back target has to come from the hop that opened it. Settings
+        /// sub-pages never push: their parent is the table, so the table cannot disagree with
+        /// a stale history entry. One entry per user-initiated hop, capped at 8.
         /// </summary>
         private readonly List<string> _navBackStack = new();
         private readonly ShellUiState _uiState = ShellUiState.Load();
@@ -621,18 +646,29 @@ namespace Predex.WinUI.Shell
         /// <summary>
         /// Switches the page displayed in the single window. Home is the only page that can
         /// be shown in the collapsed density, so opening any other page expands the shell.
-        /// User-initiated hops are remembered for the back button; the shell's own restore
-        /// path (<paramref name="allowRedirect"/> = false) and back navigation itself
-        /// (<paramref name="rememberBack"/> = false) do not push a new entry.
+        /// <paramref name="allowRedirect"/> = false is the shell's own restore path (no window
+        /// animation, no navigation log line); <paramref name="userInitiated"/> = false is
+        /// back navigation, which logs "back X -> Y" itself instead of "navigate X -> Y".
+        /// Settings sub-pages are resolved by <see cref="PageBackTargets"/>; every other hop is
+        /// recorded for the pages that have two entries (Fans).
         /// </summary>
-        internal void NavigateTo(string tag, bool allowRedirect = true, bool rememberBack = true)
+        internal void NavigateTo(string tag, bool allowRedirect = true, bool userInitiated = true)
         {
             if (!PageTypes.TryGetValue(tag, out Type? pageType)) return;
 
-            if (rememberBack && allowRedirect && !string.Equals(tag, _currentTag, StringComparison.Ordinal))
+            string from = _currentTag;
+            if (allowRedirect && userInitiated && !string.Equals(tag, from, StringComparison.Ordinal))
             {
-                _navBackStack.Add(_currentTag);
-                if (_navBackStack.Count > 8) _navBackStack.RemoveAt(0);
+                ShellLog.Write("nav", $"navigate {from} -> {tag}");
+
+                // Settings sub-pages are not recorded: PageBackTargets already says where they
+                // return, and a history entry on top of that could only drift (for example
+                // after back returned to Settings instead of popping a matching entry).
+                if (!PageBackTargets.ContainsKey(tag))
+                {
+                    _navBackStack.Add(from);
+                    if (_navBackStack.Count > 8) _navBackStack.RemoveAt(0);
+                }
             }
 
             if (!_pages.TryGetValue(tag, out Page? page))
@@ -685,6 +721,17 @@ namespace Predex.WinUI.Shell
                 $"page={tag} expanded={_isExpanded} targetHeight={targetHeight}DIP");
             DispatcherQueue.TryEnqueue(LogLayout);
             DispatcherQueue.TryEnqueue(FocusPageRoot);
+        }
+
+        /// <summary>
+        /// Where the back button goes from <paramref name="tag"/>: the fixed parent from
+        /// <see cref="PageBackTargets"/> (Settings sub-pages → Settings), otherwise the page
+        /// that opened it (Tuning → Fans → Tuning), otherwise Home.
+        /// </summary>
+        private string BackTargetFor(string tag)
+        {
+            if (PageBackTargets.TryGetValue(tag, out string? parent)) return parent;
+            return _navBackStack.Count > 0 ? _navBackStack[^1] : "Home";
         }
 
         /// <summary>
@@ -803,24 +850,31 @@ namespace Predex.WinUI.Shell
             PageChrome.Visibility = home ? Visibility.Collapsed : Visibility.Visible;
             ExpandButton.Visibility = home ? Visibility.Visible : Visibility.Collapsed;
             PageTitleText.Text = Loc.T(PageTitleKeys[_currentTag]);
+            UpdateBackTooltip();
         }
 
         /// <summary>
-        /// Back button: return to the page this one was opened from (Settings → Theme →
-        /// Settings), and to Home when there is no history. The stack is per session and is
-        /// kept across the hide/show cycle (pages are rebuilt, the history is not).
+        /// The back button's tooltip names where it goes (Settings for a settings sub-page,
+        /// Tuning when Fans was opened from there, Home otherwise) instead of always "Home".
+        /// </summary>
+        private void UpdateBackTooltip()
+            => ToolTipService.SetToolTip(BackButton, Loc.T(PageTitleKeys[BackTargetFor(_currentTag)]));
+
+        /// <summary>
+        /// Back button: returns to the page this one belongs to. The four Settings sub-pages go
+        /// back to Settings through <see cref="PageBackTargets"/> — the table survives the
+        /// hide/show page-tree rebuild, so back is the same target whether or not the window was
+        /// re-summoned in between. Pages with two entries (Fans: Home and Tuning) fall back to
+        /// the recorded hop, and a page without either falls back Home.
         /// </summary>
         private void BackButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_navBackStack.Count > 0)
-            {
-                string target = _navBackStack[^1];
+            string from = _currentTag;
+            string target = BackTargetFor(from);
+            if (!PageBackTargets.ContainsKey(from) && _navBackStack.Count > 0)
                 _navBackStack.RemoveAt(_navBackStack.Count - 1);
-                ShellLog.Write("nav", $"back → {target} (remaining history {_navBackStack.Count})");
-                NavigateTo(target, rememberBack: false);
-                return;
-            }
-            NavigateTo("Home", rememberBack: false);
+            ShellLog.Write("nav", $"back {from} -> {target}");
+            NavigateTo(target, userInitiated: false);
         }
 
         // ── Show / hide / quit ───────────────────────────────────────────────────
@@ -971,7 +1025,7 @@ namespace Predex.WinUI.Shell
         {
             PageTitleText.Text = Loc.T(PageTitleKeys[_currentTag]);
             ToolTipService.SetToolTip(ExpandButton, Loc.T(_isExpanded ? "Collapse" : "Expand"));
-            ToolTipService.SetToolTip(BackButton, Loc.T("Home"));
+            UpdateBackTooltip();
         }
 
 

@@ -202,6 +202,51 @@ namespace PreySense.Frontend.Services
                     new(StringComparer.Ordinal) { ["zh-CN"] = "此系统既不支持云母也不支持亚克力：窗口使用纯色。" },
                 ["Language, startup, Acer services, battery and USB charging. Appearance lives on its own page."] =
                     new(StringComparer.Ordinal) { ["zh-CN"] = "语言、开机启动、Acer 服务、电池与 USB 充电。外观设置在单独的页面。" },
+
+                // ── Settings directory + General / Power / Updates and About (IA phase 1) ──
+                // Chinese only, same policy as the theme-page block above: the other four
+                // languages fall back to the English source through Translate().
+                // Settings became a directory page (General / Power Profiles / Theme /
+                // Updates and About), so the old single-page subtitle is replaced by one row
+                // hint per page.
+                ["Language, power, appearance, updates and about."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "语言、电源、外观、更新与关于。" },
+                ["Language, startup and Acer services."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "语言、开机启动与 Acer 服务。" },
+                ["Language, theme, startup and Acer services."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "语言、主题、开机启动与 Acer 服务。" },
+                ["Battery limit, USB power-off charging and power profiles."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "电池充电限制、USB 关机充电与电源配置。" },
+                ["Updates and About"] = new(StringComparer.Ordinal) { ["zh-CN"] = "更新与关于" },
+                ["Version {0} · no update feed configured"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "版本 {0} · 未配置更新源" },
+
+                // ── Updates and About page ─────────────────────────────────────────
+                ["Version, update state, build and licence."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "版本、更新状态、构建与许可证。" },
+                ["Update"] = new(StringComparer.Ordinal) { ["zh-CN"] = "更新" },
+                ["Update feed"] = new(StringComparer.Ordinal) { ["zh-CN"] = "更新源" },
+                ["Not configured"] = new(StringComparer.Ordinal) { ["zh-CN"] = "未配置" },
+                ["Configured"] = new(StringComparer.Ordinal) { ["zh-CN"] = "已配置" },
+                ["Update checking uses the configured release feed."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "检查更新使用已配置的发布源。" },
+                ["Check the configured release feed for a newer version."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "向已配置的发布源查询是否有新版本。" },
+                ["Performix has no release feed yet, so update checking stays offline and never contacts the network."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "尚未接入发布源，检查更新保持离线，不会访问网络。" },
+                ["Check for updates"] = new(StringComparer.Ordinal) { ["zh-CN"] = "检查更新" },
+                ["Not wired to a release feed yet."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "尚未接入发布源。" },
+                ["About"] = new(StringComparer.Ordinal) { ["zh-CN"] = "关于" },
+                ["Version"] = new(StringComparer.Ordinal) { ["zh-CN"] = "版本" },
+                ["Build time"] = new(StringComparer.Ordinal) { ["zh-CN"] = "构建时间" },
+                ["Architecture"] = new(StringComparer.Ordinal) { ["zh-CN"] = "架构" },
+                ["Unknown"] = new(StringComparer.Ordinal) { ["zh-CN"] = "未知" },
+                ["Open logs folder"] = new(StringComparer.Ordinal) { ["zh-CN"] = "打开日志目录" },
+                ["Logs and crash reports live next to the executable (shell.log, crash.log)."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "日志与崩溃报告位于程序目录（shell.log、crash.log）。" },
+                ["GPL-3.0. Performix is free software; third-party components are listed in THIRD-PARTY-NOTICES.md."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "GPL-3.0。Performix 是自由软件；第三方组件见 THIRD-PARTY-NOTICES.md。" },
             };
 
         // ── New keys introduced by the WinUI shell (zh-CN only; others fall back to English)

@@ -1,27 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  S2 — Settings page (WinUI 3).
+  Settings — the directory page (IA phase 1, docs\design\UI-ARCH.md §1/§2).
 
-  Port of app\Fork\PreySense.Frontend\Views\SettingsWindow.xaml (WPF, 162 lines) into a
-  page that the single-window shell hosts. WPF structure kept 1:1:
+  It used to be the whole settings surface: language, startup, Acer services, battery limit,
+  USB charging and both power profiles were pinned on this one page. The design splits the
+  settings tree into one directory page + four sub-pages, so this page is now a list of four
+  navigation rows and nothing else:
 
-    General        Language · Run on Startup · Acer Services · Battery Limit ·
-                   USB Power-Off Charging (+ readback status line)
-                   (Theme moved to its own page; this page keeps a navigation row for it.)
-    Power Profiles On Battery · Energy Saver on Battery · On AC
+    General            Language / Theme entry / Run on Startup / Acer services
+    Power Profiles     Battery limit / USB power-off charging (+ readback) / On battery /
+                       On AC / Energy saver on battery
+    Theme              the existing ThemePage (content untouched, still reached from here)
+    Updates and About  version, update placeholder, build / logs / licence
 
-  Layout rules (docs\UI-DESIGN-RULES.md):
-    • one single column inside a ScrollViewer, width follows the host (no window size here)
-    • spacing only 4 / 6 / 8 / 12 / 16; font sizes only 11 / 12 / 16
-    • every row is label-left / control-right, one shared row height and one shared control
-      column width so the right edges line up
-    • long explanations are not printed inline: a muted info glyph next to the label carries
-      the text in a ToolTip (and in AutomationProperties.HelpText for screen readers)
-    • the only border language on this page is the existing CardStyle (1 px + radius 6)
-
-  Text is written as the English source string and resolved through Loc.T() →
-  LocalizationService → UiText (red line 7: no hard-coded copy in the page).
-  Bindings are x:Bind only; the page owns no ViewModel and does no navigation.
+  RULES
+    • only a directory: no setting is duplicated here, every row navigates (SHELL-CONTRACT §2)
+    • one card, one column; row = title left + subtitle under it, chevron right
+    • the navigation-row / label / hint / chevron styles live in Styles\Resources.xaml so the
+      hub, General and Power share one row rhythm (they came out of this page)
+    • the version string sits at the top right of the page header — the shell title bar is
+      reserved for the wordmark and the CPU/GPU temperatures (UI-ARCH §2.8)
+    • text is the English source string through Loc.T(); long explanations are a ToolTip
 -->
 <Page
     x:Class="Predex.WinUI.Pages.SettingsPage"
@@ -32,116 +31,9 @@
     xmlns:local="using:Predex.WinUI"
     mc:Ignorable="d"
     Background="Transparent"
-    IsTabStop="True" UseSystemFocusVisuals="False">
-
-  <Page.Resources>
-    <!-- ── Row rhythm: one row height, one control column width ───────────────── -->
-    <x:Double x:Key="SettingRowMinHeight">36</x:Double>
-    <!-- ColumnDefinition.Width takes a GridLength, not a Double. An <x:Double> resource here
-         compiles but throws XamlParseException ("Double cannot be assigned to GridLength")
-         when the page is constructed, so the 132 is written literally on each row. -->
-
-    <!-- The card is the shell's CardStyle (padding GapGroup, radius 6, 1 px). This page used
-         to wrap it in a private copy; card padding is a shared token now (R2 item 6). -->
-
-    <Style x:Key="SettingRowStyle" TargetType="Grid">
-      <Setter Property="MinHeight" Value="{StaticResource SettingRowMinHeight}"/>
-      <Setter Property="ColumnSpacing" Value="12"/>
-      <Setter Property="HorizontalAlignment" Value="Stretch"/>
-    </Style>
-
-    <Style x:Key="SettingLabelStyle" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-      <Setter Property="TextWrapping" Value="Wrap"/>
-      <Setter Property="MaxLines" Value="2"/>
-      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-    </Style>
-
-    <!-- Info glyph: the long explanation lives in its ToolTip, never as a paragraph. -->
-    <Style x:Key="SettingHelpGlyphStyle" TargetType="FontIcon">
-      <Setter Property="FontFamily" Value="Segoe Fluent Icons"/>
-      <Setter Property="Glyph" Value="&#xE946;"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="HorizontalAlignment" Value="Left"/>
-      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-      <Setter Property="AutomationProperties.AccessibilityView" Value="Raw"/>
-    </Style>
-
-    <Style x:Key="SettingComboStyle" TargetType="ComboBox">
-      <!-- R5: a pointer click focuses a ComboBox and WinUI then paints the white system focus
-           ring around it; the combos here are pointer-first, so the ring is off. Keyboard
-           users still see the caret/open state, and Tab order is unchanged. -->
-      <Setter Property="UseSystemFocusVisuals" Value="False"/>
-      <!-- belt and braces: a pointer click gives a ComboBox keyboard focus and Fluent then
-           paints a white 2 px focus ring; zeroing the focus-visual thickness removes it. -->
-      <Setter Property="FocusVisualPrimaryThickness" Value="0"/>
-      <Setter Property="FocusVisualSecondaryThickness" Value="0"/>
-      <Setter Property="Height" Value="30"/>
-      <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
-      <Setter Property="FontSize" Value="11"/>
-      <Setter Property="HorizontalAlignment" Value="Stretch"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-    </Style>
-
-    <!-- X4: one switch-state vocabulary for the whole app: 开 / 关, 12 px Secondary.
-         The text sits right of the switch (ToggleSwitch renders OnContent there). -->
-    <Style x:Key="SettingSwitchStyle" TargetType="ToggleSwitch">
-      <Setter Property="MinWidth" Value="0"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-      <Setter Property="HorizontalAlignment" Value="Right"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-    </Style>
-
-    <Style x:Key="SettingHintStyle" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="11"/>
-      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-      <Setter Property="TextWrapping" Value="Wrap"/>
-    </Style>
-
-    <!-- Row that navigates to a page instead of owning a value (the theme entry): full-width
-         hit target, hover fill, no chevron glyph from memory — a plain "›" character. -->
-    <Style x:Key="SettingRowButtonStyle" TargetType="Button">
-      <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Padding" Value="0"/>
-      <Setter Property="UseSystemFocusVisuals" Value="False"/>
-      <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
-      <Setter Property="HorizontalAlignment" Value="Stretch"/>
-      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-      <Setter Property="VerticalContentAlignment" Value="Center"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Grid>
-              <Border x:Name="Bg" Background="Transparent"
-                      CornerRadius="{ThemeResource AppControlCornerRadius}"/>
-              <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"
-                                Margin="{TemplateBinding Padding}"/>
-              <VisualStateManager.VisualStateGroups>
-                <VisualStateGroup x:Name="CommonStates">
-                  <VisualState x:Name="Normal"/>
-                  <VisualState x:Name="PointerOver">
-                    <VisualState.Setters>
-                      <Setter Target="Bg.Background" Value="{StaticResource SectionBgHoverBrush}"/>
-                    </VisualState.Setters>
-                  </VisualState>
-                  <VisualState x:Name="Pressed">
-                    <VisualState.Setters>
-                      <Setter Target="Bg.Background" Value="{StaticResource SectionBgBrush}"/>
-                    </VisualState.Setters>
-                  </VisualState>
-                </VisualStateGroup>
-              </VisualStateManager.VisualStateGroups>
-            </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-  </Page.Resources>
+    IsTabStop="True" UseSystemFocusVisuals="False"
+    AutomationProperties.AutomationId="PageSettings"
+    AutomationProperties.Name="{x:Bind local:Loc.T('Settings')}">
 
   <ScrollViewer Padding="12,10,12,12"
                 HorizontalScrollBarVisibility="Disabled"
@@ -150,9 +42,8 @@
 
       <!-- ═══════════════════════════════════════════════════════════════════
            PAGE SUBTITLE + VERSION
-           One subtitle line, no repeated page heading: the shell title bar already
-           says "设置". The version string is shown here and only here (it no longer fits
-           the title bar next to the CPU temperature and two labelled groups).
+           One subtitle line, no repeated page heading: the shell title bar already says
+           "设置". The version is the only dynamic text on this page.
            ═══════════════════════════════════════════════════════════════════ -->
       <Grid ColumnSpacing="8">
         <Grid.ColumnDefinitions>
@@ -160,7 +51,7 @@
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0"
-                   Text="{x:Bind local:Loc.T('Language, startup, Acer services, battery and USB charging. Appearance lives on its own page.')}"
+                   Text="{x:Bind local:Loc.T('Language, power, appearance, updates and about.')}"
                    Style="{StaticResource PageSubtitleStyle}"
                    VerticalAlignment="Top"
                    AutomationProperties.AutomationId="TxtSettingsSubtitle"/>
@@ -172,55 +63,62 @@
       </Grid>
 
       <!-- ═══════════════════════════════════════════════════════════════════
-           GENERAL
+           SETTINGS DIRECTORY — four navigation rows
            ═══════════════════════════════════════════════════════════════════ -->
       <Border Style="{StaticResource CardStyle}">
         <StackPanel Spacing="0">
 
-          <TextBlock Text="{x:Bind local:Loc.T('General')}"
-                     Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,4"/>
-
-          <!-- ── Language ─────────────────────────────────────────────────── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+          <!-- ── General ─────────────────────────────────────────────────── -->
+          <Button x:Name="BtnSettingsGeneral"
+                  Style="{StaticResource SettingRowButtonStyle}"
+                  MinHeight="44" Click="OpenGeneral_Click"
+                  AutomationProperties.AutomationId="BtnSettingsGeneral"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('General')}"
+                  AutomationProperties.HelpText="{x:Bind local:Loc.T('Language, startup and Acer services.')}"
+                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Language, startup and Acer services.')}">
+            <Grid ColumnSpacing="8">
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
-              <TextBlock Text="{x:Bind local:Loc.T('Language')}"
-                         Style="{StaticResource SettingLabelStyle}"/>
-              <FontIcon Grid.Column="1"
-                        Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Applied immediately and saved to preysense.json. Missing translations fall back to English.')}"/>
+              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind local:Loc.T('General')}"
+                           Style="{StaticResource SettingLabelStyle}"/>
+                <TextBlock Text="{x:Bind local:Loc.T('Language, startup and Acer services.')}"
+                           Style="{StaticResource SettingHintStyle}"/>
+              </StackPanel>
+              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
             </Grid>
+          </Button>
 
-            <ComboBox x:Name="CmbLanguage" Grid.Column="1"
-                      Style="{StaticResource SettingComboStyle}"
-                      AutomationProperties.AutomationId="CmbLanguage"
-                      AutomationProperties.Name="{x:Bind local:Loc.T('Language')}"
-                      AutomationProperties.HelpText="{x:Bind local:Loc.T('Applied immediately and saved to preysense.json. Missing translations fall back to English.')}"
-                      SelectionChanged="Language_SelectionChanged">
-              <ComboBoxItem Content="{x:Bind local:Loc.T('English')}" Tag="en-US"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('Simplified Chinese')}" Tag="zh-CN"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('Hindi')}" Tag="hi-IN"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('Spanish')}" Tag="es-ES"/>
-              <ComboBoxItem Content="{x:Bind local:Loc.T('French')}" Tag="fr-FR"/>
-            </ComboBox>
-          </Grid>
+          <!-- ── Power Profiles ──────────────────────────────────────────── -->
+          <Button x:Name="BtnSettingsPower"
+                  Style="{StaticResource SettingRowButtonStyle}"
+                  MinHeight="44" Click="OpenPower_Click"
+                  AutomationProperties.AutomationId="BtnSettingsPower"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('Power Profiles')}"
+                  AutomationProperties.HelpText="{x:Bind local:Loc.T('Battery limit, USB power-off charging and power profiles.')}"
+                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Battery limit, USB power-off charging and power profiles.')}">
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind local:Loc.T('Power Profiles')}"
+                           Style="{StaticResource SettingLabelStyle}"/>
+                <TextBlock Text="{x:Bind local:Loc.T('Battery limit, USB power-off charging and power profiles.')}"
+                           Style="{StaticResource SettingHintStyle}"/>
+              </StackPanel>
+              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
+            </Grid>
+          </Button>
 
-          <!-- ── Theme → own page (theme-page task) ─────────────────────────────
-               The four appearance controls (mode / window style / material / accent)
-               moved to Pages\ThemePage.xaml and are reached from here, at the top of the
-               settings card. This row is navigation only: no value, no duplicated control. -->
-          <Button x:Name="BtnOpenTheme" Style="{StaticResource SettingRowButtonStyle}"
-                  MinHeight="36"
-                  Click="OpenTheme_Click"
-                  AutomationProperties.AutomationId="BtnOpenTheme"
+          <!-- ── Theme (existing page, content untouched) ────────────────── -->
+          <Button x:Name="BtnSettingsTheme"
+                  Style="{StaticResource SettingRowButtonStyle}"
+                  MinHeight="44" Click="OpenTheme_Click"
+                  AutomationProperties.AutomationId="BtnSettingsTheme"
                   AutomationProperties.Name="{x:Bind local:Loc.T('Theme')}"
                   AutomationProperties.HelpText="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}"
                   ToolTipService.ToolTip="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}">
@@ -233,259 +131,35 @@
                 <TextBlock Text="{x:Bind local:Loc.T('Theme')}"
                            Style="{StaticResource SettingLabelStyle}"/>
                 <TextBlock Text="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour.')}"
-                           Style="{StaticResource SettingHintStyle}"
-                           Margin="0,1,0,0"/>
+                           Style="{StaticResource SettingHintStyle}"/>
               </StackPanel>
-              <TextBlock Grid.Column="1" Text="&#x203A;" FontSize="16"
-                         Foreground="{StaticResource TextMutedBrush}"
-                         VerticalAlignment="Center"
-                         AutomationProperties.AccessibilityView="Raw"/>
+              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
             </Grid>
           </Button>
 
-          <!-- ── Run on Startup ────────────────────────────────────────────── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+          <!-- ── Updates and About ─────────────────────────────────────────
+               Subtitle carries the version + the honest update-feed state, so the row is
+               useful without opening it (IA phase 1: no fake update progress anywhere). -->
+          <Button x:Name="BtnSettingsMeta"
+                  Style="{StaticResource SettingRowButtonStyle}"
+                  MinHeight="44" Click="OpenMeta_Click"
+                  AutomationProperties.AutomationId="BtnSettingsMeta"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('Updates and About')}"
+                  AutomationProperties.HelpText="{x:Bind MetaSubtitle}"
+                  ToolTipService.ToolTip="{x:Bind MetaSubtitle}">
+            <Grid ColumnSpacing="8">
               <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="{x:Bind local:Loc.T('Run on Startup')}"
-                         Style="{StaticResource SettingLabelStyle}"/>
-              <FontIcon Grid.Column="1"
-                        Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Registers an elevated scheduled task so Windows starts Performix with fan curves and lighting restored.')}"/>
-            </Grid>
-
-            <ToggleSwitch Grid.Column="1"
-                          Style="{StaticResource SettingSwitchStyle}"
-                          OnContent="{x:Bind local:Loc.T('On')}"
-                          OffContent="{x:Bind local:Loc.T('Off')}"
-                          IsOn="{x:Bind Vm.IsRunOnStartupEnabled, Mode=OneWay}"
-                          IsEnabled="{x:Bind Vm.CanChangeRunOnStartup, Mode=OneWay}"
-                          Toggled="RunOnStartup_Toggled"
-                          AutomationProperties.AutomationId="ChkRunOnStartup"
-                          AutomationProperties.Name="{x:Bind local:Loc.T('Run on Startup')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Registers an elevated scheduled task so Windows starts Performix with fan curves and lighting restored.')}"/>
-          </Grid>
-
-          <!-- ── Acer Services (WPF: IsAcerServicesEnabled OneWay + command) ── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
-              <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
               </Grid.ColumnDefinitions>
-              <TextBlock Text="{x:Bind local:Loc.T('Acer Services')}"
-                         Style="{StaticResource SettingLabelStyle}"/>
-              <FontIcon Grid.Column="1"
-                        Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Stops and disables Acer OEM background services to free memory. The official Predator Sense app stops working until you re-enable them.')}"/>
-            </Grid>
-
-            <ToggleSwitch x:Name="ChkAcerServices" Grid.Column="1"
-                          Style="{StaticResource SettingSwitchStyle}"
-                          IsOn="{x:Bind Vm.IsAcerServicesEnabled, Mode=OneWay}"
-                          OnContent="{x:Bind local:Loc.T('On')}"
-                          OffContent="{x:Bind local:Loc.T('Off')}"
-                          Toggled="AcerServices_Toggled"
-                          AutomationProperties.AutomationId="ChkAcerServices"
-                          AutomationProperties.Name="{x:Bind local:Loc.T('Acer Services')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Stops and disables Acer OEM background services to free memory. The official Predator Sense app stops working until you re-enable them.')}"/>
-          </Grid>
-
-          <!-- ── Battery Limit (80% / 100%) ────────────────────────────────── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-              <Grid ColumnSpacing="4">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{x:Bind local:Loc.T('Battery Limit')}"
+              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind local:Loc.T('Updates and About')}"
                            Style="{StaticResource SettingLabelStyle}"/>
-                <FontIcon Grid.Column="1"
-                          Style="{StaticResource SettingHelpGlyphStyle}"
-                          ToolTipService.ToolTip="{x:Bind local:Loc.T('Caps charging at 80% to slow battery wear. Turned off the battery charges to 100%.')}"/>
-              </Grid>
-              <!-- S3: the 80 % cap gets its own line; the switch itself only says 开 / 关 -->
-              <TextBlock Text="{x:Bind local:Loc.T('Limit 80%')}"
-                         Style="{StaticResource SettingHintStyle}"
-                         AutomationProperties.AutomationId="TxtBatteryLimitHint"/>
-            </StackPanel>
-            <ToggleSwitch x:Name="ChkBatteryLimit" Grid.Column="1"
-                          Style="{StaticResource SettingSwitchStyle}"
-                          IsOn="{x:Bind Vm.IsBatteryLimitEnabled, Mode=OneWay}"
-                          OnContent="{x:Bind local:Loc.T('On')}"
-                          OffContent="{x:Bind local:Loc.T('Off')}"
-                          Toggled="BatteryLimit_Toggled"
-                          AutomationProperties.AutomationId="ChkBatteryLimit"
-                          AutomationProperties.Name="{x:Bind local:Loc.T('Battery Limit')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Caps charging at 80% to slow battery wear. Turned off the battery charges to 100%.')}"/>
-          </Grid>
-
-          <!-- ── USB Power-Off Charging (0..30, step 10; 0 shows Disabled) ──── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-              <Grid ColumnSpacing="4">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="Auto"/>
-                  <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{x:Bind local:Loc.T('USB Power-Off Charging')}"
-                           Style="{StaticResource SettingLabelStyle}"/>
-                <FontIcon Grid.Column="1"
-                          Style="{StaticResource SettingHelpGlyphStyle}"
-                          ToolTipService.ToolTip="{x:Bind local:Loc.T('Charges devices from the supported USB port while the laptop is off. Stops at the selected laptop battery level and uses battery power.')}"/>
-              </Grid>
-            </StackPanel>
-
-            <!-- S2: a 4-position setting is a dropdown, not an unlabelled slider. First item
-                 is 关闭 (= 0 %). Same 132 x 30 shape as the Language / Theme controls. -->
-            <ComboBox x:Name="CmbUsbCharging" Grid.Column="1"
-                      Style="{StaticResource SettingComboStyle}"
-                      IsEnabled="{x:Bind Vm.CanChangeUsbCharging, Mode=OneWay}"
-                      SelectionChanged="UsbCharging_SelectionChanged"
-                      AutomationProperties.AutomationId="CmbUsbCharging"
-                      AutomationProperties.Name="{x:Bind local:Loc.T('USB Power-Off Charging')}"
-                      AutomationProperties.HelpText="{x:Bind local:Loc.T('Charges devices from the supported USB port while the laptop is off. Stops at the selected laptop battery level and uses battery power.')}">
-              <ComboBoxItem Content="{x:Bind local:Loc.T('Off')}" Tag="0"/>
-              <ComboBoxItem Content="10%" Tag="10"/>
-              <ComboBoxItem Content="20%" Tag="20"/>
-              <ComboBoxItem Content="30%" Tag="30"/>
-            </ComboBox>
-          </Grid>
-
-          <!-- Readback failure / N/A line. Empty means the write round-tripped cleanly. -->
-          <TextBlock Text="{x:Bind Vm.UsbChargingStatus, Mode=OneWay}"
-                     Style="{StaticResource SettingHintStyle}"
-                     Visibility="{x:Bind StatusVisibility(Vm.UsbChargingStatus), Mode=OneWay}"
-                     Margin="0,0,0,4"
-                     AutomationProperties.AutomationId="TxtUsbChargingStatus"
-                     AutomationProperties.LiveSetting="Polite"/>
-        </StackPanel>
-      </Border>
-
-      <!-- ═══════════════════════════════════════════════════════════════════
-           POWER PROFILES
-           ═══════════════════════════════════════════════════════════════════ -->
-      <Border Style="{StaticResource CardStyle}">
-        <StackPanel Spacing="0">
-
-          <Grid ColumnSpacing="4" Margin="0,0,0,4">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="Auto"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Power Profiles')}"
-                       Style="{StaticResource SectionTitleStyle}"/>
-            <FontIcon Grid.Column="1"
-                      Style="{StaticResource SettingHelpGlyphStyle}"
-                      ToolTipService.ToolTip="{x:Bind local:Loc.T('The profile is applied automatically when the laptop switches between battery and AC power.')}"/>
-          </Grid>
-
-          <!-- ── On Battery (SourceProfileNames / BatteryPowerModeIndex) ───── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="{x:Bind local:Loc.T('On Battery')}"
-                         Style="{StaticResource SettingLabelStyle}"/>
-              <FontIcon Grid.Column="1"
-                        Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('The profile is applied automatically when the laptop switches between battery and AC power.')}"/>
+                <TextBlock Text="{x:Bind MetaSubtitle}" Style="{StaticResource SettingHintStyle}"/>
+              </StackPanel>
+              <TextBlock Grid.Column="1" Style="{StaticResource SettingChevronStyle}"/>
             </Grid>
-
-            <ComboBox x:Name="CmbBatteryPowerMode" Grid.Column="1"
-                      Style="{StaticResource SettingComboStyle}"
-                      ItemsSource="{x:Bind ProfileNames, Mode=OneWay}"
-                      SelectedIndex="{x:Bind Vm.BatteryPowerModeIndex, Mode=TwoWay}"
-                      AutomationProperties.AutomationId="CmbBatteryPowerMode"
-                      AutomationProperties.Name="{x:Bind local:Loc.T('On Battery')}"/>
-          </Grid>
-
-          <!-- ── Energy Saver on Battery (TwoWay, no command) ──────────────── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="{x:Bind local:Loc.T('Energy Saver on Battery')}"
-                         Style="{StaticResource SettingLabelStyle}"/>
-              <FontIcon Grid.Column="1"
-                        Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Turns on the Windows Energy Saver while the laptop runs from battery.')}"/>
-            </Grid>
-
-            <ToggleSwitch x:Name="ChkEnergySaverOnBattery" Grid.Column="1"
-                          Style="{StaticResource SettingSwitchStyle}"
-                          OnContent="{x:Bind local:Loc.T('On')}"
-                          OffContent="{x:Bind local:Loc.T('Off')}"
-                          IsOn="{x:Bind Vm.IsBatteryEnergySaverEnabled, Mode=TwoWay}"
-                          AutomationProperties.AutomationId="ChkEnergySaverOnBattery"
-                          AutomationProperties.Name="{x:Bind local:Loc.T('Energy Saver on Battery')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Turns on the Windows Energy Saver while the laptop runs from battery.')}"/>
-          </Grid>
-
-          <!-- ── On AC (SourceProfileNames / AcPowerModeIndex) ─────────────── -->
-          <Grid Style="{StaticResource SettingRowStyle}">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="132"/>
-            </Grid.ColumnDefinitions>
-
-            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="{x:Bind local:Loc.T('On AC')}"
-                         Style="{StaticResource SettingLabelStyle}"/>
-              <FontIcon Grid.Column="1"
-                        Style="{StaticResource SettingHelpGlyphStyle}"
-                        ToolTipService.ToolTip="{x:Bind local:Loc.T('The profile is applied automatically when the laptop switches between battery and AC power.')}"/>
-            </Grid>
-
-            <ComboBox x:Name="CmbAcPowerMode" Grid.Column="1"
-                      Style="{StaticResource SettingComboStyle}"
-                      ItemsSource="{x:Bind ProfileNames, Mode=OneWay}"
-                      SelectedIndex="{x:Bind Vm.AcPowerModeIndex, Mode=TwoWay}"
-                      AutomationProperties.AutomationId="CmbAcPowerMode"
-                      AutomationProperties.Name="{x:Bind local:Loc.T('On AC')}"/>
-          </Grid>
+          </Button>
         </StackPanel>
       </Border>
     </StackPanel>

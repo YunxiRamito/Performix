@@ -56,8 +56,15 @@ namespace PreySense.Frontend.Services
         private const string ReleasesUrl =
             "https://github.com/hammadzaigham/PreySense/releases";
 
-        /// <summary>False until Predex has a release feed of its own (see above).</summary>
+        /// <summary>False until Performix has a release feed of its own (see above).</summary>
         private static readonly bool UpdateFeedConfigured = false;
+
+        /// <summary>
+        /// Read-only view of the flag for the Updates and About page: while there is no feed
+        /// the page shows "no update feed configured" and disables the check button instead of
+        /// drawing a fake progress bar (UI-ARCH §2.8 / IA phase 1).
+        /// </summary>
+        public static bool IsUpdateFeedConfigured => UpdateFeedConfigured;
 
         // Allow tests to swap the HTTP client.
         internal static Func<string, Task<string>>? HttpGetOverride { get; set; }
