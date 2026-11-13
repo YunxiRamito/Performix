@@ -23,3 +23,25 @@ Generation attempt 2: simplified prompt; same model; prior attempt HTTP 502 upst
 Prompt: ai-icon-prompt.txt; characters=1394; previous prompt retained as ai-icon-prompt-attempt-1.txt.
 Request: POST /v1/images/generations; model=gpt-image-2.6-sunburst-special; size=1024x1024; n=1.
 POST attempt 2 Invoke-RestMethod TLS try 1
+POST attempt 2 HTTP 200
+Response keys: created,data
+Image keys: url
+Elapsed seconds: 54.99
+Downloading returned image URL; host=api.image2pro.top; signed query omitted.
+Response summary: {   "requested_model": "gpt-image-2.6-sunburst-special",   "returned_model": null,   "generation_attempt": 2,   "prior_failure": "HTTP 502 upstream_error",   "created": 1794556826,   "source": "url",   "response_keys": [     "created",     "data"   ],   "image_keys": [     "url"   ],   "elapsed_seconds": 54.99,   "image_bytes": 982983,   "image_sha256": "E5CA3FB62AE558FBFA8C4566AB2B16E9C5AD1923A09C831B2DAF021EE48728A4",   "revised_prompt": null,   "usage": null,   "canvas": "Full-bleed opaque square; round corners later." }
+Generation attempt 2 completed after 54.99 seconds.
+Provenance verification: {   "original_sha256_verified": true,   "model_catalog_verified": true,   "log_key_scan": "passed",   "protected_root_files_current": [     "generate-icon.py",     "performix-app-16.png",     "performix-app-256.png",     "performix-app-32.png",     "performix-app-64.png",     "performix-app.png",     "performix-mark-mono.png",     "performix-mark.png",     "performix.ico",     "preview-16px-x8.png",     "preview-32px-x8.png"   ],   "root_files_written_by_this_task": 0,   "tls_handshake_failure": false,   "curl_fallback_used": false }
+Adaptation command: python "G:\DeepSeek DSH\DSH Works\Project\Performix\assets\brand\ai\adapt-icon.py"
+Validation: PASS. PNG sizes=512,256,64,32,16. ICO sizes=16,24,32,48,64,128,256. Every frame resized directly from original 1024 PNG.
+Small-size filtering: LANCZOS; 16/32 RGB-only UnsharpMask radius=0.45 percent=65 threshold=2. No geometric drawing or symbol replacement.
+Original SHA256 unchanged: e5ca3fb62ae558fbfa8c4566ab2b16e9c5ad1923a09c831b2daf021ee48728a4
+Protected brand root: 11 pre-adaptation files checked; all SHA256 hashes unchanged. No writes targeted the brand root. Another agent populated root files during this task; initial root snapshot was empty.
+Visual QA: Original, size contact sheet and nearest-neighbor 8x enlargement of 16px inspected via view_image.
+16px assessment: cyan gauge arc and upper-right white pointer remain recognizable. Small lower wing cuts collapse into a pale chevron; pivot and wing become visually crowded. Acceptable utility icon readability, not perfect micro-icon branding.
+Design limitations: model returned an opaque square, as explicitly allowed; no rounded corners or transparent outer margin. Pointer tip touches/overlaps arc. Background highlights are brighter than ideal. Original wing differs from reference 1, but commercial trademark uniqueness has not been verified.
+Model provenance limitation: catalog lists requested ID and POST requests it; response includes only created/data/url and does not attest a returned model ID.
+Networking: GET HTTP 200; first POST HTTP 502 upstream_error; simplified second POST HTTP 200. No SSL handshake failure, so TLS retry/curl fallback was not triggered.
+No packages installed. No API key stored in logs, prompts, or scripts.
+Artifact sizes and SHA256: [   {     "file": "performix-ai-16-preview-8x.png",     "bytes": 1450,     "sha256": "0B2FA116FB2F620BA400C276DAD56B319981FD084B3E8DE177B00ABE73795A07"   },   {     "file": "performix-ai-16.png",     "bytes": 795,     "sha256": "061A87E61ED2FD1681561EEDB456A336B10BDCFAE5811A3ECD48B790427763FA"   },   {     "file": "performix-ai-256.png",     "bytes": 68058,     "sha256": "6B517E81B7007AD86DE6569E5236BD6E5B21BE6597295741CFCA01AE034E81AA"   },   {     "file": "performix-ai-32.png",     "bytes": 2175,     "sha256": "8279B07E6D15DE01E4BE8D38D84101205E71D7884520B895487D1AA9E38700E0"   },   {     "file": "performix-ai-512.png",     "bytes": 260560,     "sha256": "11E86107DA1680AB1F121B9B79ED1D36BA3C4F94BE5A9621EC387533B9A9DBD6"   },   {     "file": "performix-ai-64.png",     "bytes": 6605,     "sha256": "9D071D503B12E9D796721E63B872A85E7C73650B99D8118E23E5FE15FE4FBE6C"   },   {     "file": "performix-ai-size-preview.png",     "bytes": 356168,     "sha256": "3D5D034B72BF0B25803B101FC490431D6CAD791AAF46B163A43D634731EE0137"   },   {     "file": "performix-ai.ico",     "bytes": 103444,     "sha256": "AF2AE9AE0B732782DD74370EC7900B69377C967B250C68D111CD843416EC8E27"   },   {     "file": "performix-ai.png",     "bytes": 982983,     "sha256": "E5CA3FB62AE558FBFA8C4566AB2B16E9C5AD1923A09C831B2DAF021EE48728A4"   } ]
+Temporary request JSON and root snapshots removed. Final key scan passed.
+Completed: 2026-11-13T16:12:29.8956911+08:00

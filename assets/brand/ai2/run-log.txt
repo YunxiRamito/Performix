@@ -1,0 +1,2 @@
+[2026-11-13 16:20:47] performix-ai.png: w=754.3 h=734.8 err=2.582% segments=1
+[2026-11-13 16:20:48] performix-app.png: w=727.2 h=724.5 err=0.376% segments=1

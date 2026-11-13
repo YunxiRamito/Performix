@@ -58,6 +58,12 @@ namespace PreySense.Core.Services
         private static readonly HashSet<string> ExcludedServiceNames = new(StringComparer.OrdinalIgnoreCase)
         {
             "PreySense",
+            // PSSvc is the Predator sensor/named-pipe service. Its DisplayName ("Predator Service")
+            // matches the dynamic Acer/Predator discovery rule, but it owns the pipe this app uses for
+            // mode switching (cmd 32) and fan/RPM telemetry. Disabling it silently breaks both: the
+            // mode write falls back to a direct Acer WMI call that always fails on this platform, and
+            // temperatures degrade to the ACPI thermal zone. Never disable it.
+            "PSSvc",
             "Psched",
             "IntcAzAudAddService",
             "DtsApo4Service",

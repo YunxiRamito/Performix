@@ -1,0 +1,376 @@
+{
+  "validated": true,
+  "source": {
+    "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai.png",
+    "bytes": 982983,
+    "sha256": "e5ca3fb62ae558fbfa8c4566ab2b16e9c5ad1923a09c831b2daf021ee48728a4",
+    "size": [
+      1024,
+      1024
+    ],
+    "mode": "RGB",
+    "alpha": {
+      "has_alpha_channel": false,
+      "has_transparency_metadata": false,
+      "minimum": 255,
+      "maximum": 255,
+      "transparent_pixels": 0,
+      "partial_alpha_pixels": 0,
+      "opaque_pixels": 1048576
+    },
+    "sha256_after": "e5ca3fb62ae558fbfa8c4566ab2b16e9c5ad1923a09c831b2daf021ee48728a4",
+    "hash_unchanged": true,
+    "validated": true
+  },
+  "processing": {
+    "resize": "Every PNG and ICO frame is resized directly from the 1024x1024 source",
+    "resampling": "LANCZOS",
+    "unsharp_mask": {
+      "sizes": [
+        16,
+        32
+      ],
+      "channels": "RGB only; alpha unchanged",
+      "radius": 0.45,
+      "percent": 65,
+      "threshold": 2
+    },
+    "ico_encoding": "Individually encoded PNG payloads in ICONDIR/ICONDIRENTRY",
+    "preview_8x_resampling": "NEAREST",
+    "size_preview": "512, 256, 64, 32, 16 left-to-right; native size; 16px gaps and margins"
+  },
+  "pngs": {
+    "performix-ai-512.png": {
+      "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai-512.png",
+      "validated": true,
+      "bytes": 260560,
+      "sha256": "11e86107da1680ab1f121b9b79ed1d36ba3c4f94be5a9621ec387533b9a9dbd6",
+      "size": [
+        512,
+        512
+      ],
+      "mode": "RGBA",
+      "alpha": {
+        "has_alpha_channel": true,
+        "has_transparency_metadata": false,
+        "minimum": 255,
+        "maximum": 255,
+        "transparent_pixels": 0,
+        "partial_alpha_pixels": 0,
+        "opaque_pixels": 262144
+      }
+    },
+    "performix-ai-256.png": {
+      "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai-256.png",
+      "validated": true,
+      "bytes": 68058,
+      "sha256": "6b517e81b7007ad86de6569e5236bd6e5b21be6597295741cfca01ae034e81aa",
+      "size": [
+        256,
+        256
+      ],
+      "mode": "RGBA",
+      "alpha": {
+        "has_alpha_channel": true,
+        "has_transparency_metadata": false,
+        "minimum": 255,
+        "maximum": 255,
+        "transparent_pixels": 0,
+        "partial_alpha_pixels": 0,
+        "opaque_pixels": 65536
+      }
+    },
+    "performix-ai-64.png": {
+      "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai-64.png",
+      "validated": true,
+      "bytes": 6605,
+      "sha256": "9d071d503b12e9d796721e63b872a85e7c73650b99d8118e23e5fe15fe4fbe6c",
+      "size": [
+        64,
+        64
+      ],
+      "mode": "RGBA",
+      "alpha": {
+        "has_alpha_channel": true,
+        "has_transparency_metadata": false,
+        "minimum": 255,
+        "maximum": 255,
+        "transparent_pixels": 0,
+        "partial_alpha_pixels": 0,
+        "opaque_pixels": 4096
+      }
+    },
+    "performix-ai-32.png": {
+      "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai-32.png",
+      "validated": true,
+      "bytes": 2175,
+      "sha256": "8279b07e6d15de01e4be8d38d84101205e71d7884520b895487d1aa9e38700e0",
+      "size": [
+        32,
+        32
+      ],
+      "mode": "RGBA",
+      "alpha": {
+        "has_alpha_channel": true,
+        "has_transparency_metadata": false,
+        "minimum": 255,
+        "maximum": 255,
+        "transparent_pixels": 0,
+        "partial_alpha_pixels": 0,
+        "opaque_pixels": 1024
+      }
+    },
+    "performix-ai-16.png": {
+      "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai-16.png",
+      "validated": true,
+      "bytes": 795,
+      "sha256": "061a87e61ed2fd1681561eedb456a336b10bdcfae5811a3ecd48b790427763fa",
+      "size": [
+        16,
+        16
+      ],
+      "mode": "RGBA",
+      "alpha": {
+        "has_alpha_channel": true,
+        "has_transparency_metadata": false,
+        "minimum": 255,
+        "maximum": 255,
+        "transparent_pixels": 0,
+        "partial_alpha_pixels": 0,
+        "opaque_pixels": 256
+      }
+    },
+    "performix-ai-16-preview-8x.png": {
+      "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai-16-preview-8x.png",
+      "validated": true,
+      "bytes": 1450,
+      "sha256": "0b2fa116fb2f620ba400c276dad56b319981fd084b3e8de177b00abe73795a07",
+      "size": [
+        128,
+        128
+      ],
+      "mode": "RGBA",
+      "alpha": {
+        "has_alpha_channel": true,
+        "has_transparency_metadata": false,
+        "minimum": 255,
+        "maximum": 255,
+        "transparent_pixels": 0,
+        "partial_alpha_pixels": 0,
+        "opaque_pixels": 16384
+      }
+    },
+    "performix-ai-size-preview.png": {
+      "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai-size-preview.png",
+      "validated": true,
+      "bytes": 356168,
+      "sha256": "3d5d034b72bf0b25803b101fc490431d6cad791aaf46b163a43d634731ee0137",
+      "size": [
+        976,
+        544
+      ],
+      "mode": "RGBA",
+      "alpha": {
+        "has_alpha_channel": true,
+        "has_transparency_metadata": false,
+        "minimum": 0,
+        "maximum": 255,
+        "transparent_pixels": 197888,
+        "partial_alpha_pixels": 0,
+        "opaque_pixels": 333056
+      }
+    }
+  },
+  "ico": {
+    "path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\performix-ai.ico",
+    "bytes": 103444,
+    "sha256": "af2ae9ae0b732782dd74370ec7900b69377c967b250c68d111cd843416ec8e27",
+    "frame_count": 7,
+    "validated": true,
+    "frames": [
+      {
+        "index": 0,
+        "directory_width": 16,
+        "directory_height": 16,
+        "offset": 118,
+        "planes": 1,
+        "bit_count": 32,
+        "png_payload_unchanged": true,
+        "validated": true,
+        "bytes": 795,
+        "sha256": "061a87e61ed2fd1681561eedb456a336b10bdcfae5811a3ecd48b790427763fa",
+        "size": [
+          16,
+          16
+        ],
+        "mode": "RGBA",
+        "alpha": {
+          "has_alpha_channel": true,
+          "has_transparency_metadata": false,
+          "minimum": 255,
+          "maximum": 255,
+          "transparent_pixels": 0,
+          "partial_alpha_pixels": 0,
+          "opaque_pixels": 256
+        }
+      },
+      {
+        "index": 1,
+        "directory_width": 24,
+        "directory_height": 24,
+        "offset": 913,
+        "planes": 1,
+        "bit_count": 32,
+        "png_payload_unchanged": true,
+        "validated": true,
+        "bytes": 1414,
+        "sha256": "5341efc3f9c6c27927fcc45ecc37e44e780694f4651081a4df98c7082ef2130c",
+        "size": [
+          24,
+          24
+        ],
+        "mode": "RGBA",
+        "alpha": {
+          "has_alpha_channel": true,
+          "has_transparency_metadata": false,
+          "minimum": 255,
+          "maximum": 255,
+          "transparent_pixels": 0,
+          "partial_alpha_pixels": 0,
+          "opaque_pixels": 576
+        }
+      },
+      {
+        "index": 2,
+        "directory_width": 32,
+        "directory_height": 32,
+        "offset": 2327,
+        "planes": 1,
+        "bit_count": 32,
+        "png_payload_unchanged": true,
+        "validated": true,
+        "bytes": 2175,
+        "sha256": "8279b07e6d15de01e4be8d38d84101205e71d7884520b895487d1aa9e38700e0",
+        "size": [
+          32,
+          32
+        ],
+        "mode": "RGBA",
+        "alpha": {
+          "has_alpha_channel": true,
+          "has_transparency_metadata": false,
+          "minimum": 255,
+          "maximum": 255,
+          "transparent_pixels": 0,
+          "partial_alpha_pixels": 0,
+          "opaque_pixels": 1024
+        }
+      },
+      {
+        "index": 3,
+        "directory_width": 48,
+        "directory_height": 48,
+        "offset": 4502,
+        "planes": 1,
+        "bit_count": 32,
+        "png_payload_unchanged": true,
+        "validated": true,
+        "bytes": 4166,
+        "sha256": "6a552fb9eb9409be350ec535b581c8da78630b911ac347b3991c5343feabaad4",
+        "size": [
+          48,
+          48
+        ],
+        "mode": "RGBA",
+        "alpha": {
+          "has_alpha_channel": true,
+          "has_transparency_metadata": false,
+          "minimum": 255,
+          "maximum": 255,
+          "transparent_pixels": 0,
+          "partial_alpha_pixels": 0,
+          "opaque_pixels": 2304
+        }
+      },
+      {
+        "index": 4,
+        "directory_width": 64,
+        "directory_height": 64,
+        "offset": 8668,
+        "planes": 1,
+        "bit_count": 32,
+        "png_payload_unchanged": true,
+        "validated": true,
+        "bytes": 6605,
+        "sha256": "9d071d503b12e9d796721e63b872a85e7c73650b99d8118e23e5fe15fe4fbe6c",
+        "size": [
+          64,
+          64
+        ],
+        "mode": "RGBA",
+        "alpha": {
+          "has_alpha_channel": true,
+          "has_transparency_metadata": false,
+          "minimum": 255,
+          "maximum": 255,
+          "transparent_pixels": 0,
+          "partial_alpha_pixels": 0,
+          "opaque_pixels": 4096
+        }
+      },
+      {
+        "index": 5,
+        "directory_width": 128,
+        "directory_height": 128,
+        "offset": 15273,
+        "planes": 1,
+        "bit_count": 32,
+        "png_payload_unchanged": true,
+        "validated": true,
+        "bytes": 20113,
+        "sha256": "a158353890f31ef3c6fcff75d9ddf273604b0db2b55456fda8a6958c964e2bc4",
+        "size": [
+          128,
+          128
+        ],
+        "mode": "RGBA",
+        "alpha": {
+          "has_alpha_channel": true,
+          "has_transparency_metadata": false,
+          "minimum": 255,
+          "maximum": 255,
+          "transparent_pixels": 0,
+          "partial_alpha_pixels": 0,
+          "opaque_pixels": 16384
+        }
+      },
+      {
+        "index": 6,
+        "directory_width": 0,
+        "directory_height": 0,
+        "offset": 35386,
+        "planes": 1,
+        "bit_count": 32,
+        "png_payload_unchanged": true,
+        "validated": true,
+        "bytes": 68058,
+        "sha256": "6b517e81b7007ad86de6569e5236bd6e5b21be6597295741cfca01ae034e81aa",
+        "size": [
+          256,
+          256
+        ],
+        "mode": "RGBA",
+        "alpha": {
+          "has_alpha_channel": true,
+          "has_transparency_metadata": false,
+          "minimum": 255,
+          "maximum": 255,
+          "transparent_pixels": 0,
+          "partial_alpha_pixels": 0,
+          "opaque_pixels": 65536
+        }
+      }
+    ]
+  },
+  "validation_report_path": "G:\\DeepSeek DSH\\DSH Works\\Project\\Performix\\assets\\brand\\ai\\ai-icon-validation.json"
+}

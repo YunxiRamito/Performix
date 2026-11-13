@@ -1,0 +1,21 @@
+{
+  "requested_model": "gpt-image-2.6-sunburst-special",
+  "returned_model": null,
+  "generation_attempt": 2,
+  "prior_failure": "HTTP 502 upstream_error",
+  "created": 1794556826,
+  "source": "url",
+  "response_keys": [
+    "created",
+    "data"
+  ],
+  "image_keys": [
+    "url"
+  ],
+  "elapsed_seconds": 54.99,
+  "image_bytes": 982983,
+  "image_sha256": "E5CA3FB62AE558FBFA8C4566AB2B16E9C5AD1923A09C831B2DAF021EE48728A4",
+  "revised_prompt": null,
+  "usage": null,
+  "canvas": "Full-bleed opaque square; round corners later."
+}

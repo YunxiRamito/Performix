@@ -85,7 +85,7 @@ def background(side: int, size: int) -> tuple[Image.Image, Image.Image]:
 def dial_mask(side: int, size: int) -> Image.Image:
     mask = Image.new("L", (side, side))
     radius = 0.322 if size <= 24 else 0.326
-    stroke = 0.084 if size <= 16 else 0.072 if size <= 32 else 0.060
+    stroke = 0.094 if size <= 16 else 0.072 if size <= 32 else 0.060
     outer_radius, inner_radius = radius + stroke / 2, radius - stroke / 2
     angles = np.linspace(ARC_START, ARC_START + ARC_SWEEP, max(160, int(side * 1.2)))
     # Annular polygons produce precise radial flat end caps.
@@ -115,14 +115,25 @@ def dial_gradient(side: int) -> Image.Image:
     return rgb_image(pixels).convert("RGBA")
 
 
-def mark_mask(side: int, small: bool = False) -> Image.Image:
+def mark_mask(side: int, small: bool = False, tiny: bool = False) -> Image.Image:
     """Original Ascend mark: one central needle and two detached swept vanes.
 
     New topology: single apex, continuous center shaft, detached inward/upward
     wings, no eye cutouts, no center slit, and no reference-style twin fangs.
     """
     mask = Image.new("L", (side, side))
-    if small:
+    if tiny:
+        # 16 px optical master: a two-pixel shaft and one-pixel detached vanes.
+        needle_pixels = (
+            (8, 5), (9.5, 7.5), (9, 7.5), (9, 11),
+            (7, 11), (7, 7.5), (6.5, 7.5),
+        )
+        wing_pixels = ((5, 8), (6, 7), (6, 9.5), (5, 9.5))
+        needle = tuple((horizontal / 16, vertical / 16)
+                       for horizontal, vertical in needle_pixels)
+        left_wing = tuple((horizontal / 16, vertical / 16)
+                          for horizontal, vertical in wing_pixels)
+    elif small:
         # Small optical masters: wider shaft, four-point wings, larger gaps.
         needle = (
             (0.500, 0.310), (0.587, 0.471), (0.545, 0.455),
@@ -180,7 +191,7 @@ def render_app(size: int) -> Image.Image:
     arc = dial_gradient(side)
     arc.putalpha(dial)
     tile = Image.alpha_composite(tile, arc)
-    mark = mark_mask(side, small=size <= 32)
+    mark = mark_mask(side, small=size <= 32, tiny=size <= 16)
     if size >= 64:
         shadow_mask = mark.filter(ImageFilter.GaussianBlur(side * 0.009))
         shadow_mask = ImageChops.offset(shadow_mask, 0, round(side * 0.006))
@@ -189,7 +200,10 @@ def render_app(size: int) -> Image.Image:
         shadow.putalpha(ImageChops.multiply(shadow_mask, silhouette))
         tile = Image.alpha_composite(tile, shadow)
     tile = Image.alpha_composite(tile, light_mark(side, mark, mono=size <= 32))
-    return tile.resize((size, size), Image.Resampling.LANCZOS)
+    result = tile.resize((size, size), Image.Resampling.LANCZOS)
+    # Remove one-level Lanczos ringing outside the rounded tile silhouette.
+    result.putalpha(result.getchannel("A").point(lambda value: 0 if value <= 1 else value))
+    return result
 
 
 def render_standalone_mark(size: int, mono: bool) -> Image.Image:
@@ -242,6 +256,10 @@ def validate(frames: dict[int, Image.Image]) -> None:
         assert (palette, unused, planes, bits) == (0, 0, 1, 32)
         with Image.open(io.BytesIO(raw[offset:offset + length])) as frame:
             assert frame.mode == "RGBA" and frame.size == dimensions
+            assert all(frame.getpixel(position)[3] == 0 for position in (
+                (0, 0), (expected_size - 1, 0), (0, expected_size - 1),
+                (expected_size - 1, expected_size - 1),
+            )), f"ICO {expected_size}: corners must be fully transparent"
             assert np.array_equal(np.asarray(frame), np.asarray(frames[expected_size]))
         decoded_sizes.append(dimensions)
     with Image.open(OUTPUT_DIR / "performix.ico") as icon:
@@ -301,4 +319,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
