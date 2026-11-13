@@ -531,3 +531,7 @@ CimException: 无法从客户端中访问 CIM 资源。
 | B（中风险） | P/Invoke `CreateFile("\\.\ATKACPI")` + `DeviceIoControl`，分别发 `0x53545344` 与 `0x53544344` | 中：IOCTL 直通驱动，参数错了行为不可预期 | 需要 Medium/High IL，且必须先有 DSDT 证据 |
 
 **本篇结论因此修正为**：本机型 `AsusHWMonitorWMI` 不可用的判断**尚未成立**；此前记录「访问被拒/疑似厂商 ACL」应改为「**在 Low IL 下访问被拒，原因未定论**」。任何后续 provider 实现都必须先报告调用进程的完整性级别，再下结论。
+
+> **归属（按 [ADR-0003](../adr/0003-capability-availability.md) 的九态）**：本机的 `0x80041003` 属**「需授权」**
+> （能力存在、用户可自解），**不是「不支持」**——不许在功能清单里标成「此机型不提供」。
+
