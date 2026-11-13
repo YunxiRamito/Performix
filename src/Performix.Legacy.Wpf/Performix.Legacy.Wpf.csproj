@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Performix.Core\Performix.Core.csproj" />
+    <ProjectReference Include="..\Performix.Overlay\Performix.Overlay.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <!-- The test assembly is Performix.Tests; the namespaces stay PreySense.* on purpose. -->
+    <InternalsVisibleTo Include="Performix.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\*.png" />
+    <Resource Include="appicon.ico" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!--
+      Kept as Predex on purpose (see README.md). The WPF UI is the rollback/reference build and
+      its XAML resource dictionaries are addressed with pack://application:,,,/Predex;component/...
+      Renaming the assembly here would break those pack URIs.
+    -->
+    <AssemblyName>Predex</AssemblyName>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>appicon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Product>Performix</Product>
+    <AssemblyTitle>Performix (WPF legacy UI)</AssemblyTitle>
+    <Company>Performix</Company>
+  </PropertyGroup>
+
+</Project>

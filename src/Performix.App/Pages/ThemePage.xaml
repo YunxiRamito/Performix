@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Theme page (theme-page task, UPDATE-DESIGN.md §3) — the appearance controls that used to
+  live in SettingsPage as a single "Theme" dropdown, promoted to their own page:
+
+    Appearance mode  Dark / Light / Follow system      (3 tiles, same selected language as Home)
+    Window style     Windows 11 (round) / Windows 10 (square)
+    Material         Mica / Acrylic / Solid            (unsupported ones greyed, never hidden)
+    Accent colour    Follow Windows / Fixed #3B82F6 / Custom (ColorSpectrum ring + hex box,
+                     8 preset swatches are shortcuts)
+                     The primitive is Microsoft.UI.Xaml.Controls.Primitives.ColorSpectrum (the
+                     same control LightingPage.xaml uses for its colour pickers). The ColorPicker
+                     *control* pins its inner spectrum to 256 DIP and clips at 160 DIP, so the
+                     primitive is used directly. Property is Shape="Ring".
+
+  Every control is applied by Predex.WinUI.Services.AppearanceService the moment it changes —
+  there is no Apply button — and each change writes one line to shell.log (`appearance:`).
+
+  Layout rules (docs\UI-DESIGN-RULES.md / SHELL-CONTRACT.md §3 + §5):
+    • one ScrollViewer, one card, the shared CardStyle padding (12) and radius (6)
+    • spacing only 4 / 6 / 12; font sizes only 11 / 12 / 16
+    • the page never repeats its title (the shell title bar already says 主题)
+    • text is the English source string through Loc.T(); long explanations live in a
+      ToolTip on the muted info glyph (and in AutomationProperties.HelpText)
+    • the tile surfaces come from resource-key brushes (TileFillBrush / TileSelectedFillBrush /
+      AccentBrush) instead of hex literals so a light-theme or accent change repaints them
+      immediately: AppearanceService recolours those shared SolidColorBrush instances.
+-->
+<Page
+    x:Class="Predex.WinUI.Pages.ThemePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:Predex.WinUI"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
+    mc:Ignorable="d"
+    Background="Transparent"
+    IsTabStop="True" UseSystemFocusVisuals="False"
+    AutomationProperties.AutomationId="PageTheme" AutomationProperties.Name="{x:Bind local:Loc.T('Theme')}">
+
+  <Page.Resources>
+    <Style x:Key="ThemeLabelStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+      <Setter Property="MaxLines" Value="2"/>
+    </Style>
+
+    <!-- Info glyph: the explanation is the ToolTip, never a paragraph on the card. -->
+    <Style x:Key="ThemeHelpGlyphStyle" TargetType="FontIcon">
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons"/>
+      <Setter Property="Glyph" Value="&#xE946;"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="HorizontalAlignment" Value="Left"/>
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="AutomationProperties.AccessibilityView" Value="Raw"/>
+    </Style>
+
+    <!-- Same shape as the Settings combos (30 high, 132 wide, no white focus ring). -->
+    <Style x:Key="ThemeComboStyle" TargetType="ComboBox">
+      <Setter Property="UseSystemFocusVisuals" Value="False"/>
+      <Setter Property="FocusVisualPrimaryThickness" Value="0"/>
+      <Setter Property="FocusVisualSecondaryThickness" Value="0"/>
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+
+    <Style x:Key="ThemeHintStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <Style x:Key="ThemeTileCaptionStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="TextAlignment" Value="Center"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="MaxLines" Value="1"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+      <Setter Property="Foreground" Value="{ThemeResource ModeTileTextBrush}"/>
+    </Style>
+
+    <!-- 28 DIP accent preset swatch inside the flyout: a plain Button whose Background is the
+         colour; radius comes from the appearance token so Windows 10 style squares it too. -->
+    <Style x:Key="ThemeSwatchButtonStyle" TargetType="Button">
+      <Setter Property="Width" Value="28"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+      <Setter Property="UseSystemFocusVisuals" Value="False"/>
+    </Style>
+  </Page.Resources>
+
+  <ScrollViewer Padding="12,10,12,12"
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Stretch" VerticalAlignment="Top">
+
+      <TextBlock Text="{x:Bind local:Loc.T('Appearance, window shape, material and accent colour. Every change applies immediately.')}"
+                 Style="{StaticResource PageSubtitleStyle}"
+                 AutomationProperties.AutomationId="TxtThemeSubtitle"/>
+
+      <Border Style="{StaticResource CardStyle}">
+        <StackPanel Spacing="0">
+
+          <Grid ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{x:Bind local:Loc.T('Appearance')}"
+                       Style="{StaticResource SectionTitleStyle}"/>
+            <FontIcon Grid.Column="1"
+                      Style="{StaticResource ThemeHelpGlyphStyle}"
+                      ToolTipService.ToolTip="{x:Bind local:Loc.T('These are the same four controls the Windows personalisation page offers. Nothing here touches the hardware.')}"/>
+          </Grid>
+
+          <!-- ═══ APPEARANCE MODE: 3 tiles, Home's selected language ═══ -->
+          <TextBlock Text="{x:Bind local:Loc.T('Appearance mode')}"
+                     Style="{StaticResource ThemeLabelStyle}"
+                     Margin="0,8,0,0"/>
+          <Grid ColumnSpacing="6" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0" Style="{x:Bind local:Converters.BoolToStyle(IsDarkSelected, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+                    Click="DarkTile_Click"
+                    AutomationProperties.AutomationId="BtnThemeDark"
+                    AutomationProperties.Name="{x:Bind local:Loc.T('Dark')}"
+                    ToolTipService.ToolTip="{x:Bind local:Loc.T('Dark surfaces, the default look.')}">
+              <TextBlock Text="{x:Bind local:Loc.T('Dark')}" Style="{x:Bind local:Converters.BoolToStyle(IsDarkSelected, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+            </Button>
+
+            <Button Grid.Column="1" Style="{x:Bind local:Converters.BoolToStyle(IsLightSelected, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+                    Click="LightTile_Click"
+                    AutomationProperties.AutomationId="BtnThemeLight"
+                    AutomationProperties.Name="{x:Bind local:Loc.T('Light')}"
+                    ToolTipService.ToolTip="{x:Bind local:Loc.T('Light surfaces for a bright room.')}">
+              <TextBlock Text="{x:Bind local:Loc.T('Light')}" Style="{x:Bind local:Converters.BoolToStyle(IsLightSelected, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+            </Button>
+
+            <Button Grid.Column="2" Style="{x:Bind local:Converters.BoolToStyle(IsSystemThemeSelected, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+                    Click="SystemTile_Click"
+                    AutomationProperties.AutomationId="BtnThemeSystem"
+                    AutomationProperties.Name="{x:Bind local:Loc.T('Follow system')}"
+                    ToolTipService.ToolTip="{x:Bind local:Loc.T('Matches the Windows light / dark setting and follows it while Performix runs.')}">
+              <TextBlock Text="{x:Bind local:Loc.T('Follow system')}" Style="{x:Bind local:Converters.BoolToStyle(IsSystemThemeSelected, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+            </Button>
+          </Grid>
+
+          <!-- ═══ WINDOW STYLE: DWM corner + control radius tokens ═══ -->
+          <Grid ColumnSpacing="4" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{x:Bind local:Loc.T('Window style')}"
+                       Style="{StaticResource ThemeLabelStyle}"/>
+            <FontIcon Grid.Column="1"
+                      Style="{StaticResource ThemeHelpGlyphStyle}"
+                      ToolTipService.ToolTip="{x:Bind local:Loc.T('Windows 11 draws a rounded window and rounded controls; Windows 10 squares both. Applied through DWM and the corner-radius tokens.')}"/>
+          </Grid>
+          <Grid ColumnSpacing="6" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0" Style="{x:Bind local:Converters.BoolToStyle(IsWin11StyleSelected, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+                    Click="Win11Tile_Click"
+                    AutomationProperties.AutomationId="BtnStyleWin11"
+                    AutomationProperties.Name="Windows 11"
+                    ToolTipService.ToolTip="{x:Bind local:Loc.T('Rounded window corner and 4 / 6 DIP control radii.')}">
+              <StackPanel Style="{StaticResource ModeTileStackStyle}">
+                <TextBlock Text="Windows 11" Style="{x:Bind local:Converters.BoolToStyle(IsWin11StyleSelected, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+                <TextBlock Text="{x:Bind local:Loc.T('Rounded')}" Style="{StaticResource ThemeTileCaptionStyle}"/>
+              </StackPanel>
+            </Button>
+
+            <Button Grid.Column="1" Style="{x:Bind local:Converters.BoolToStyle(IsWin10StyleSelected, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+                    Click="Win10Tile_Click"
+                    AutomationProperties.AutomationId="BtnStyleWin10"
+                    AutomationProperties.Name="Windows 10"
+                    ToolTipService.ToolTip="{x:Bind local:Loc.T('Square window corner and square controls.')}">
+              <StackPanel Style="{StaticResource ModeTileStackStyle}">
+                <TextBlock Text="Windows 10" Style="{x:Bind local:Converters.BoolToStyle(IsWin10StyleSelected, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+                <TextBlock Text="{x:Bind local:Loc.T('Square')}" Style="{StaticResource ThemeTileCaptionStyle}"/>
+              </StackPanel>
+            </Button>
+          </Grid>
+
+          <!-- ═══ MATERIAL: unsupported entries are greyed, never hidden.
+               Label line + full-width control line: the material names and the accent
+               options do not fit a 132 DIP control column next to a label. ═══ -->
+          <Grid ColumnSpacing="4" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{x:Bind local:Loc.T('Material')}"
+                       Style="{StaticResource ThemeLabelStyle}"/>
+            <FontIcon Grid.Column="1"
+                      Style="{StaticResource ThemeHelpGlyphStyle}"
+                      ToolTipService.ToolTip="{x:Bind local:Loc.T('The backdrop behind the window. Mica and acrylic need a supported GPU driver; unsupported entries are greyed out and Performix falls back to a solid colour.')}"/>
+          </Grid>
+
+          <ComboBox x:Name="CmbMaterial"
+                    Style="{StaticResource ThemeComboStyle}"
+                    Margin="0,6,0,0"
+                    SelectionChanged="Material_SelectionChanged"
+                    AutomationProperties.AutomationId="CmbMaterial"
+                    AutomationProperties.Name="{x:Bind local:Loc.T('Material')}"
+                    AutomationProperties.HelpText="{x:Bind local:Loc.T('The backdrop behind the window. Mica and acrylic need a supported GPU driver; unsupported entries are greyed out and Performix falls back to a solid colour.')}">
+            <ComboBoxItem x:Name="MaterialMicaItem" Content="{x:Bind local:Loc.T('Mica')}" Tag="Mica"/>
+            <ComboBoxItem x:Name="MaterialAcrylicItem" Content="{x:Bind local:Loc.T('Acrylic')}" Tag="Acrylic"/>
+            <ComboBoxItem x:Name="MaterialSolidItem" Content="{x:Bind local:Loc.T('Solid')}" Tag="Solid"/>
+          </ComboBox>
+
+          <TextBlock x:Name="TxtMaterialHint"
+                     Style="{StaticResource ThemeHintStyle}"
+                     Visibility="Collapsed"
+                     Margin="0,4,0,0"
+                     AutomationProperties.AutomationId="TxtMaterialHint"
+                     AutomationProperties.LiveSetting="Polite"/>
+
+          <!-- ═══ ACCENT COLOUR ═══ -->
+          <Grid ColumnSpacing="4" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{x:Bind local:Loc.T('Accent colour')}"
+                       Style="{StaticResource ThemeLabelStyle}"/>
+            <FontIcon Grid.Column="1"
+                      Style="{StaticResource ThemeHelpGlyphStyle}"
+                      ToolTipService.ToolTip="{x:Bind local:Loc.T('Used for selected tiles, switches, sliders and the primary button. Follow Windows or pick one of the preset colours.')}"/>
+          </Grid>
+
+          <Grid ColumnSpacing="6" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="28"/>
+            </Grid.ColumnDefinitions>
+
+              <ComboBox x:Name="CmbAccent" Grid.Column="0"
+                        Style="{StaticResource ThemeComboStyle}"
+                        SelectionChanged="Accent_SelectionChanged"
+                        AutomationProperties.AutomationId="CmbAccent"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Accent colour')}">
+                <ComboBoxItem Content="{x:Bind local:Loc.T('Follow system')}" Tag="System"/>
+                <ComboBoxItem Content="{x:Bind local:Loc.T('Fixed #3B82F6')}" Tag="Fixed"/>
+                <ComboBoxItem Content="{x:Bind local:Loc.T('Custom')}" Tag="Custom"/>
+              </ComboBox>
+
+              <Button x:Name="BtnAccentSwatch" Grid.Column="1"
+                      Height="28" Width="28" Padding="0"
+                      CornerRadius="{ThemeResource AppControlCornerRadius}"
+                      UseSystemFocusVisuals="False"
+                      Background="{StaticResource SectionBgBrush}"
+                      BorderBrush="{StaticResource BorderStrongBrush}"
+                      BorderThickness="1"
+                      AutomationProperties.AutomationId="BtnAccentSwatch"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Accent colour')}"
+                      ToolTipService.ToolTip="{x:Bind local:Loc.T('Open the colour palette.')}">
+                <Border x:Name="AccentSwatchFill" Width="14" Height="14"
+                        CornerRadius="{ThemeResource AppControlCornerRadius}"
+                        Background="{StaticResource AccentBrush}"/>
+                <Button.Flyout>
+                  <Flyout x:Name="AccentFlyout" Placement="Top" Closed="AccentFlyout_Closed">
+                    <!-- Real colour picking: the ColorSpectrum primitive 160 DIP (verified size;
+                         the ColorPicker control clips it at 160 because of its 256 DIP minimum).
+                         Shape is an enum property spelled Shape="Ring". The eight swatches stay
+                         as one-click shortcuts, and the TextBox edits the same #RRGGBB value. -->
+                    <StackPanel Spacing="8">
+                      <TextBlock x:Name="TxtAccentPickerTitle" FontSize="11"
+                                 Foreground="{StaticResource TextSecondaryBrush}"/>
+                      <primitives:ColorSpectrum x:Name="AccentSpectrum"
+                                                Width="160" Height="160"
+                                                Shape="Ring"
+                                                HorizontalAlignment="Left"
+                                                ColorChanged="AccentSpectrum_ColorChanged"
+                                                AutomationProperties.AutomationId="CtlAccentSpectrum"/>
+                      <Grid ColumnSpacing="6" RowSpacing="6">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="Auto"/>
+                          <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                          <RowDefinition Height="Auto"/>
+                          <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <Button Grid.Row="0" Grid.Column="0" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#3B82F6" Tag="#3B82F6" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentBlue"/>
+                        <Button Grid.Row="0" Grid.Column="1" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#8B5CF6" Tag="#8B5CF6" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentViolet"/>
+                        <Button Grid.Row="0" Grid.Column="2" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#EC4899" Tag="#EC4899" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentPink"/>
+                        <Button Grid.Row="0" Grid.Column="3" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#EF4444" Tag="#EF4444" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentRed"/>
+                        <Button Grid.Row="1" Grid.Column="0" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#F59E0B" Tag="#F59E0B" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentAmber"/>
+                        <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#22C55E" Tag="#22C55E" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentGreen"/>
+                        <Button Grid.Row="1" Grid.Column="2" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#14B8A6" Tag="#14B8A6" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentTeal"/>
+                        <Button Grid.Row="1" Grid.Column="3" Style="{StaticResource ThemeSwatchButtonStyle}"
+                                Background="#64748B" Tag="#64748B" Click="PresetAccent_Click"
+                                AutomationProperties.AutomationId="BtnAccentSlate"/>
+                      </Grid>
+                      <TextBox x:Name="AccentHexBox" Width="96" Height="30" MaxLength="7"
+                               FontFamily="Consolas, Segoe UI" FontSize="12" FontWeight="SemiBold"
+                               TextAlignment="Center" PlaceholderText="#3B82F6"
+                               HorizontalAlignment="Left"
+                               TextChanged="AccentHexBox_TextChanged"
+                               LostFocus="AccentHexBox_LostFocus"
+                               AutomationProperties.AutomationId="TxtAccentHexInput"
+                               AutomationProperties.Name="{x:Bind local:Loc.T('Accent colour')}"/>
+                    </StackPanel>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
+          </Grid>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</Page>

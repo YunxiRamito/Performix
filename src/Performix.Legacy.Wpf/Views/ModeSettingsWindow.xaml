@@ -1,0 +1,380 @@
+<Window Style="{DynamicResource AppWindowRenderingStyle}" x:Class="PreySense.Frontend.Views.ModeSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:PreySense.Frontend.Controls"
+        mc:Ignorable="d"
+        Title="Performix &#x2022; Tuning"
+        Width="560"
+        SizeToContent="Height"
+        MaxHeight="820"
+        WindowStartupLocation="CenterOwner"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        FontFamily="{StaticResource AppFontFamily}"
+        ResizeMode="NoResize" AutomationProperties.AutomationId="TuningWindow">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="0" UseAeroCaptionButtons="False" CornerRadius="0"/>
+    </WindowChrome.WindowChrome>
+
+    <Border Style="{DynamicResource AppWindowShellStyle}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- title -->
+                <RowDefinition Height="Auto"/> <!-- status -->
+                <RowDefinition Height="Auto"/> <!-- scrollable single column -->
+                <RowDefinition Height="Auto"/> <!-- verification -->
+                <RowDefinition Height="Auto"/> <!-- pinned footer -->
+            </Grid.RowDefinitions>
+
+            <controls:WindowTitleBar Grid.Row="0" Title="Tuning"/>
+
+            <!-- 1. LIVE STATUS BAR (pipe telemetry) -->
+            <Border Grid.Row="1" Style="{StaticResource OriginalSectionPanelStyle}" Margin="14,8,14,0">
+                <UniformGrid Columns="4">
+                    <StackPanel>
+                        <TextBlock Text="CPU" FontSize="{DynamicResource FontSizeSmall}" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   AutomationProperties.Name="CPU"/>
+                        <TextBlock x:Name="StatusCpuTemp" Text="N/A" FontWeight="SemiBold" FontSize="{DynamicResource FontSizeBody}"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="GPU" FontSize="{DynamicResource FontSizeSmall}" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   AutomationProperties.Name="GPU"/>
+                        <TextBlock x:Name="StatusGpuTemp" Text="N/A" FontWeight="SemiBold" FontSize="{DynamicResource FontSizeBody}"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="CPU Fan" FontSize="{DynamicResource FontSizeSmall}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        <TextBlock x:Name="StatusCpuFan" Text="N/A" FontWeight="SemiBold" FontSize="{DynamicResource FontSizeBody}"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="GPU Fan" FontSize="{DynamicResource FontSizeSmall}" Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        <TextBlock x:Name="StatusGpuFan" Text="N/A" FontWeight="SemiBold" FontSize="{DynamicResource FontSizeBody}"/>
+                    </StackPanel>
+                </UniformGrid>
+            </Border>
+
+            <!-- 2. SINGLE COLUMN CONTENT -->
+            <ScrollViewer x:Name="TuningScroll" Grid.Row="2" VerticalAlignment="Top" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0">
+                <StackPanel Margin="14,0,14,0" MaxWidth="532">
+
+                    <!-- 2.1 PERFORMANCE MODE (row of equal-width buttons) -->
+                    <Border Style="{StaticResource OriginalSectionPanelStyle}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.PerformanceMode}" Size="14" Margin="0,0,6,0"/>
+                                <TextBlock Text="Performance Mode" Style="{StaticResource OriginalSectionTitleStyle}"/>
+                                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Info}" Size="12" Margin="6,0,0,0"
+                                                     Foreground="{DynamicResource TextSecondaryBrush}"
+                                                     ToolTip="Switching the Acer operating mode also applies that mode's CPU scheduling and fan profile."/>
+                            </StackPanel>
+                            <UniformGrid x:Name="ModeButtonRow" Columns="5">
+                                <Button x:Name="BtnModeEco" Tag="0" Style="{StaticResource WindowFooterButtonStyle}" Click="ModeButton_Click" Margin="2,0"
+                                        AutomationProperties.AutomationId="BtnModeEco" AutomationProperties.Name="Eco">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Eco}" Size="13" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Eco"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="BtnModeQuiet" Tag="1" Style="{StaticResource WindowFooterButtonStyle}" Click="ModeButton_Click" Margin="2,0"
+                                        AutomationProperties.AutomationId="BtnModeQuiet" AutomationProperties.Name="Quiet">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Quiet}" Size="13" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Quiet"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="BtnModeBalanced" Tag="2" Style="{StaticResource WindowFooterButtonStyle}" Click="ModeButton_Click" Margin="2,0"
+                                        AutomationProperties.AutomationId="BtnModeBalanced" AutomationProperties.Name="Balanced">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Balanced}" Size="13" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Balanced"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="BtnModePerformance" Tag="3" Style="{StaticResource WindowFooterButtonStyle}" Click="ModeButton_Click" Margin="2,0"
+                                        AutomationProperties.AutomationId="BtnModePerformance" AutomationProperties.Name="Performance">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Performance}" Size="13" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Performance"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="BtnModeTurbo" Tag="4" Style="{StaticResource WindowFooterButtonStyle}" Click="ModeButton_Click" Margin="2,0"
+                                        AutomationProperties.AutomationId="BtnModeTurbo" AutomationProperties.Name="Turbo">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Turbo}" Size="13" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Turbo"/>
+                                    </StackPanel>
+                                </Button>
+                            </UniformGrid>
+                            <ComboBox AutomationProperties.AutomationId="CmbModeSelect" x:Name="ComboModeSelect" Visibility="Collapsed" Height="1" Width="1">
+                                <ComboBoxItem Content="Eco"/>
+                                <ComboBoxItem Content="Quiet"/>
+                                <ComboBoxItem Content="Balanced"/>
+                                <ComboBoxItem Content="Performance"/>
+                                <ComboBoxItem Content="Turbo"/>
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 2.2 CPU SCHEDULING -->
+                    <Border Style="{StaticResource OriginalSectionPanelStyle}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Cpu}" Size="14" Margin="0,0,6,0"/>
+                                <TextBlock Text="CPU Scheduling" Style="{StaticResource OriginalSectionTitleStyle}"/>
+                                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Info}" Size="12" Margin="6,0,0,0"
+                                                     Foreground="{DynamicResource TextSecondaryBrush}"
+                                                     ToolTip="CPU undervolt and power limits need the kernel driver and are locked by this BIOS — here you can only tune frequency caps, Boost and EPP."/>
+                            </StackPanel>
+
+                            <Grid Margin="{StaticResource StandardRowMargin}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Power source" VerticalAlignment="Center" Style="{StaticResource SettingLabelStyle}"/>
+                                <ComboBox x:Name="ComboCpuPowerSource" Grid.Column="1" Width="130" Height="28" HorizontalAlignment="Left"
+                                          SelectedIndex="0" SelectionChanged="CpuSchedule_Changed"
+                                          AutomationProperties.AutomationId="CmbCpuPowerSource" AutomationProperties.Name="Power source">
+                                    <ComboBoxItem Content="AC"/>
+                                    <ComboBoxItem Content="DC"/>
+                                </ComboBox>
+                            </Grid>
+
+                            <Grid Margin="{StaticResource StandardRowMargin}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Max Processor State" VerticalAlignment="Center" Style="{StaticResource SettingLabelStyle}"/>
+                                <Slider x:Name="SliderCpuMaxState" Grid.Column="1" Minimum="0" Maximum="100" SmallChange="1" LargeChange="5"
+                                        TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="CpuSchedule_Changed"
+                                        AutomationProperties.AutomationId="SldCpuMaxState" AutomationProperties.Name="Max processor state"/>
+                                <TextBox x:Name="BoxCpuMaxState" Grid.Column="2" Height="26" Width="72" HorizontalContentAlignment="Right"
+                                         FontFamily="Consolas" Style="{StaticResource CompactValueTextBoxStyle}" Text="100" TextChanged="CpuScheduleTextBox_Changed"
+                                         AutomationProperties.AutomationId="TxtCpuMaxState" AutomationProperties.Name="Max processor state value"/>
+                            </Grid>
+
+                            <Grid Margin="{StaticResource StandardRowMargin}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Boost Mode" VerticalAlignment="Center" Style="{StaticResource SettingLabelStyle}"/>
+                                <ComboBox x:Name="ComboBoostMode" Grid.Column="1" Width="170" Height="28" HorizontalAlignment="Left"
+                                          SelectedIndex="1" SelectionChanged="CpuSchedule_Changed"
+                                          AutomationProperties.AutomationId="CmbBoostMode" AutomationProperties.Name="Boost mode"/>
+                            </Grid>
+
+                            <Grid Margin="{StaticResource StandardRowMargin}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="EPP (performance ↔ power)" VerticalAlignment="Center" Style="{StaticResource SettingLabelStyle}"/>
+                                <Slider x:Name="SliderCpuEpp" Grid.Column="1" Minimum="0" Maximum="100" SmallChange="1" LargeChange="5"
+                                        TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="CpuSchedule_Changed"
+                                        AutomationProperties.AutomationId="SldCpuEpp" AutomationProperties.Name="EPP preference"/>
+                                <TextBox x:Name="BoxCpuEpp" Grid.Column="2" Height="26" Width="72" HorizontalContentAlignment="Right"
+                                         FontFamily="Consolas" Style="{StaticResource CompactValueTextBoxStyle}" Text="0" TextChanged="CpuScheduleTextBox_Changed"
+                                         AutomationProperties.AutomationId="TxtCpuEpp" AutomationProperties.Name="EPP preference value"/>
+                            </Grid>
+
+                            <Grid Margin="{StaticResource StandardRowMargin}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Core Parking Min" VerticalAlignment="Center" Style="{StaticResource SettingLabelStyle}"/>
+                                <Slider x:Name="SliderCpuCoreMin" Grid.Column="1" Minimum="0" Maximum="100" SmallChange="1" LargeChange="5"
+                                        TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="CpuSchedule_Changed"
+                                        AutomationProperties.AutomationId="SldCpuCoreMin" AutomationProperties.Name="Core parking minimum"/>
+                                <TextBox x:Name="BoxCpuCoreMin" Grid.Column="2" Height="26" Width="72" HorizontalContentAlignment="Right"
+                                         FontFamily="Consolas" Style="{StaticResource CompactValueTextBoxStyle}" Text="100" TextChanged="CpuScheduleTextBox_Changed"
+                                         AutomationProperties.AutomationId="TxtCpuCoreMin" AutomationProperties.Name="Core parking minimum value"/>
+                            </Grid>
+
+                            <Grid Margin="{StaticResource StandardRowMargin}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Core Parking Max" VerticalAlignment="Center" Style="{StaticResource SettingLabelStyle}"/>
+                                <Slider x:Name="SliderCpuCoreMax" Grid.Column="1" Minimum="0" Maximum="100" SmallChange="1" LargeChange="5"
+                                        TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center" ValueChanged="CpuSchedule_Changed"
+                                        AutomationProperties.AutomationId="SldCpuCoreMax" AutomationProperties.Name="Core parking maximum"/>
+                                <TextBox x:Name="BoxCpuCoreMax" Grid.Column="2" Height="26" Width="72" HorizontalContentAlignment="Right"
+                                         FontFamily="Consolas" Style="{StaticResource CompactValueTextBoxStyle}" Text="100" TextChanged="CpuScheduleTextBox_Changed"
+                                         AutomationProperties.AutomationId="TxtCpuCoreMax" AutomationProperties.Name="Core parking maximum value"/>
+                            </Grid>
+
+                            <UniformGrid Columns="2" Margin="0,10,0,0">
+                                <Button x:Name="BtnApplyCpuSchedule" Content="Apply to Current Mode" Style="{StaticResource WindowFooterButtonStyle}"
+                                        Margin="0,0,4,0" Click="ApplyCpuSchedule_Click"
+                                        AutomationProperties.AutomationId="BtnApplyCpuSchedule" AutomationProperties.Name="Apply to current mode"/>
+                                <Button x:Name="BtnResetCpuSchedule" Content="Restore Windows Defaults" Style="{StaticResource WindowFooterButtonStyle}"
+                                        Margin="4,0,0,0" Click="ResetCpuSchedule_Click"
+                                        AutomationProperties.AutomationId="BtnResetCpuSchedule" AutomationProperties.Name="Restore Windows defaults"/>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 2.3 GPU OVERCLOCKING -->
+                    <Border x:Name="GpuOverclockingSection" Style="{StaticResource OriginalSectionPanelStyle}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Gpu}" Size="14" Margin="0,0,6,0"/>
+                                <TextBlock Text="GPU Overclocking" Style="{StaticResource OriginalSectionTitleStyle}"/>
+                                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Info}" Size="12" Margin="6,0,0,0"
+                                                     Foreground="{DynamicResource TextSecondaryBrush}"
+                                                     ToolTip="NVIDIA core/memory clock offsets via NVAPI. This works without the kernel driver."/>
+                                <controls:RectangularSwitch x:Name="SwitchGpuOverclocking" Width="56" Height="28" Margin="12,0,0,0"
+                                    VerticalAlignment="Center"
+                                    AutomationProperties.AutomationId="ChkEnableGpuOverclocking"
+                                    AutomationProperties.Name="Apply GPU clock offsets"
+                                    Checked="GpuOverclockingToggle_Changed" Unchecked="GpuOverclockingToggle_Changed"/>
+                            </StackPanel>
+                            <StackPanel x:Name="GpuOverclockingPanel" IsEnabled="False">
+                                <controls:SettingSliderRow x:Name="RowGpuCoreClock" Title="Core Clock Offset"
+                                    ValueText="N/A" Minimum="0" Maximum="500" Margin="0,4,0,6"
+                                    SmallChange="5" LargeChange="5" TickFrequency="5" IsSnapToTickEnabled="True"
+                                    AutomationProperties.AutomationId="GpuCoreClockOffset"
+                                    ValueChanged="GpuClockOffset_ValueChanged"/>
+                                <controls:SettingSliderRow x:Name="RowGpuMemoryClock" Title="Memory Clock Offset"
+                                    ValueText="N/A" Minimum="0" Maximum="0" Margin="0,4,0,6"
+                                    SmallChange="100" LargeChange="100" TickFrequency="100" IsSnapToTickEnabled="True"
+                                    AutomationProperties.AutomationId="GpuMemoryClockOffset"
+                                    ValueChanged="GpuClockOffset_ValueChanged"/>
+                            </StackPanel>
+                            <TextBlock x:Name="GpuOverclockingUnavailableHint" Text="" TextWrapping="Wrap"
+                                       Margin="0,0,0,6" Visibility="Collapsed"
+                                       FontSize="{DynamicResource FontSizeBody}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                            <UniformGrid Columns="2" Margin="0,8,0,0">
+                                <Button x:Name="BtnApplyGpuClock" Content="Apply" Style="{StaticResource WindowFooterButtonStyle}"
+                                        Margin="0,0,4,0" Click="ApplyGpuClock_Click"
+                                        AutomationProperties.AutomationId="BtnApplyGpuClock" AutomationProperties.Name="Apply GPU clock offsets"/>
+                                <Button x:Name="BtnResetGpuClocks" Content="Restore Default (0/0 MHz)" Style="{StaticResource WindowFooterButtonStyle}"
+                                        Margin="4,0,0,0" AutomationProperties.AutomationId="BtnResetGpuClockOffsets"
+                                        Click="ResetGpuClocks_Click" AutomationProperties.Name="Restore Default (0/0 MHz)"/>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 2.4 FANS -->
+                    <Border Style="{StaticResource OriginalSectionPanelStyle}" Margin="0,0,0,12">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Thermal}" Size="14" Margin="0,0,6,0"/>
+                                <TextBlock Text="Fans" Style="{StaticResource OriginalSectionTitleStyle}"/>
+                            </StackPanel>
+                            <Grid Margin="{StaticResource StandardRowMargin}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="Fan Policy" VerticalAlignment="Center" Style="{StaticResource SettingLabelStyle}"/>
+                                <TextBlock x:Name="FanPolicyText" Grid.Column="1" Text="Custom" VerticalAlignment="Center"
+                                           Style="{StaticResource SettingLabelStyle}"/>
+                            </Grid>
+                            <Button x:Name="BtnOpenFanCurve" Content="Open Curve Editor" Style="{StaticResource WindowFooterButtonStyle}"
+                                    HorizontalAlignment="Stretch" Margin="0,8,0,0" Click="OpenFanCurveEditor_Click"
+                                    AutomationProperties.AutomationId="BtnOpenFanCurve" AutomationProperties.Name="Open curve editor"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 2.5 ADVANCED (collapsed) -->
+                    <Expander Header="Advanced" IsExpanded="False" Margin="0,0,0,4" AutomationProperties.AutomationId="ExpAdvanced">
+                        <StackPanel>
+                            <TextBlock Text="These sections need the bundled kernel driver. This BIOS locks them, so they are shown disabled."
+                                       TextWrapping="Wrap" FontSize="{DynamicResource FontSizeBody}"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8"/>
+
+                            <controls:SettingSwitchRow Title="Enable Tuning"
+                                IsEnabled="{Binding IsKernelDriverSupported}"
+                                AutomationProperties.AutomationId="ChkEnableTuning"
+                                IsChecked="{Binding IsHardwareTuningEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                            <Separator/>
+
+                            <StackPanel IsEnabled="{Binding IsHardwareTuningEnabled}">
+                                <controls:SettingDropdownRow x:Name="DropdownCpuBoost" Title="CPU Boost" DropdownMinWidth="220"
+                                                             AutomationProperties.AutomationId="CmbTuningCpuBoost"/>
+
+                                <Grid Margin="{StaticResource StandardRowMargin}">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="CPU Power Limits" Style="{StaticResource OriginalSectionTitleStyle}" VerticalAlignment="Center"/>
+                                    <controls:RectangularSwitch x:Name="SwitchApplyCpuLimits" Grid.Column="1" Width="56" Height="28"
+                                        AutomationProperties.AutomationId="ChkEnableCpuPowerLimits"
+                                        AutomationProperties.Name="Apply CPU power limits"
+                                        Checked="ApplyLimitsToggle_Changed" Unchecked="ApplyLimitsToggle_Changed"/>
+                                </Grid>
+                                <StackPanel x:Name="CpuLimitsPanel">
+                                    <controls:SettingValueRow x:Name="RowPl1" Title="Sustained Long Power [PL1]" AllowEmpty="True"
+                                        Minimum="5" Maximum="300" Unit="W" ValueAutomationId="ModePl1Value" LostFocus="RowPl1_LostFocus"
+                                        AutomationProperties.AutomationId="TxtPl1"/>
+                                    <controls:SettingValueRow x:Name="RowPl2" Title="Burst Peak Power [PL2]" AllowEmpty="True"
+                                        Minimum="5" Maximum="300" Unit="W" ValueAutomationId="ModePl2Value" LostFocus="RowPl2_LostFocus"
+                                        AutomationProperties.AutomationId="TxtPl2"/>
+                                    <Grid Margin="{StaticResource StandardRowMargin}">
+                                        <StackPanel Margin="0,5,0,0">
+                                            <Grid>
+                                                <TextBlock Text="Turbo Time Limit [Tau]" FontSize="{DynamicResource FontSizeBody}" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="LabelTau" Text="" HorizontalAlignment="Right" FontSize="{DynamicResource FontSizeBody}" FontWeight="SemiBold"/>
+                                            </Grid>
+                                            <Slider x:Name="SliderTau" Minimum="0" Maximum="11" SmallChange="1" LargeChange="1" TickFrequency="1"
+                                                    IsSnapToTickEnabled="True" Margin="0,4,0,0" ValueChanged="SliderTau_ValueChanged"
+                                                    AutomationProperties.AutomationId="SldTau" AutomationProperties.Name="Turbo time limit"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+
+                                <Grid Margin="{StaticResource StandardRowMargin}">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="PROCHOT Offset" Style="{StaticResource OriginalSectionTitleStyle}" VerticalAlignment="Center"/>
+                                    <controls:RectangularSwitch x:Name="SwitchProchotOffset" Grid.Column="1" Width="56" Height="28"
+                                        IsEnabled="{Binding CanToggleProchotOffset}"
+                                        IsChecked="{Binding IsProchotOffsetEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                        Checked="ProchotOffsetToggle_Changed" Unchecked="ProchotOffsetToggle_Changed"
+                                        AutomationProperties.AutomationId="ChkEnableGlobalProchotOffset"
+                                        AutomationProperties.Name="PROCHOT Offset"/>
+                                </Grid>
+                                <controls:SettingValueRow x:Name="RowProchotOffset" Title="CPU PROCHOT Offset" AllowEmpty="True"
+                                    Minimum="0" Maximum="63" Unit="&#xB0;C" IsValueEnabled="{Binding CanEditProchotOffset}"
+                                    ValueAutomationId="GlobalProchotOffsetValue" LostFocus="RowProchotOffset_LostFocus"
+                                    AutomationProperties.AutomationId="TxtProchotOffset"/>
+
+                                <Grid Margin="{StaticResource StandardRowMargin}">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <TextBlock Text="GPU Power Limits" Style="{StaticResource OriginalSectionTitleStyle}" VerticalAlignment="Center"/>
+                                    <controls:RectangularSwitch x:Name="SwitchApplyGpuLimits" Grid.Column="1" Width="56" Height="28"
+                                        IsEnabled="{Binding IsGpuProfileTuningAvailable}"
+                                        AutomationProperties.AutomationId="ChkEnableGpuPowerLimits"
+                                        AutomationProperties.Name="GPU Power Limits"
+                                        Checked="ApplyLimitsToggle_Changed" Unchecked="ApplyLimitsToggle_Changed"/>
+                                </Grid>
+                                <StackPanel x:Name="GpuLimitsPanel">
+                                    <controls:SettingValueRow x:Name="RowGpuPower" Title="Power Limit" UnavailableText="N/A" IsEnabled="False"
+                                        AllowEmpty="True" Unit="W" Minimum="1" ValueAutomationId="ModeGpuPowerValue" LostFocus="RowGpuPower_LostFocus"
+                                        AutomationProperties.AutomationId="TxtGpuPowerLimit"/>
+                                    <StackPanel Margin="{StaticResource StandardRowMargin}">
+                                        <Grid><TextBlock Text="Delta" FontSize="{DynamicResource FontSizeBody}" FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="LabelGpuDelta" HorizontalAlignment="Right"/></Grid>
+                                        <Slider x:Name="SliderGpuDelta" Minimum="0" Maximum="100" SmallChange="5" LargeChange="5"
+                                                TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,4,0,0" ValueChanged="GpuOffsets_ValueChanged"
+                                                AutomationProperties.AutomationId="SldGpuDelta" AutomationProperties.Name="GPU power delta"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="{StaticResource StandardRowMargin}">
+                                        <Grid><TextBlock Text="Dynamic Boost" FontSize="{DynamicResource FontSizeBody}" FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="LabelGpuDynamicBoost" HorizontalAlignment="Right"/></Grid>
+                                        <Slider x:Name="SliderGpuDynamicBoost" Minimum="0" Maximum="25" SmallChange="5" LargeChange="5"
+                                                TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,4,0,0" ValueChanged="GpuOffsets_ValueChanged"
+                                                AutomationProperties.AutomationId="SldGpuDynamicBoost" AutomationProperties.Name="GPU dynamic boost"/>
+                                    </StackPanel>
+                                    <StackPanel Margin="{StaticResource StandardRowMargin}">
+                                        <Grid><TextBlock Text="Platform Power Limit Offset" FontSize="{DynamicResource FontSizeBody}" FontWeight="SemiBold"/>
+                                            <TextBlock x:Name="LabelPlatformPowerOffset" HorizontalAlignment="Right"
+                                                       AutomationProperties.AutomationId="ModePlatformPowerOffsetValue"/></Grid>
+                                        <Slider x:Name="SliderPlatformPowerOffset" Minimum="0" Maximum="100" SmallChange="5" LargeChange="5"
+                                                TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,4,0,0" ValueChanged="GpuOffsets_ValueChanged"
+                                                AutomationProperties.AutomationId="SldPlatformPowerOffset" AutomationProperties.Name="Platform power limit offset"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Expander>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <TextBlock Grid.Row="3" x:Name="TuningVerificationText" TextAlignment="Center" TextWrapping="Wrap" Margin="14,6,14,0"
+                       FontSize="{DynamicResource FontSizeBody}" Foreground="{DynamicResource TextSecondaryBrush}" Visibility="Collapsed"/>
+            <UniformGrid Grid.Row="4" Columns="3" Rows="1" Style="{StaticResource WindowFooterPanelStyle}" Margin="14,8,14,14">
+                <Button x:Name="BtnReset" Content="Reset" Style="{StaticResource WindowFooterButtonStyle}" Click="ResetButton_Click"
+                        AutomationProperties.AutomationId="BtnResetTuning" AutomationProperties.Name="Reset"/>
+                <Button x:Name="BtnApply" Content="Apply" Style="{StaticResource WindowFooterButtonStyle}" Click="ApplyButton_Click"
+                        AutomationProperties.AutomationId="BtnApplyTuning" AutomationProperties.Name="Apply"/>
+                <Button x:Name="BtnSave" Content="Save" Style="{StaticResource WindowFooterButtonStyle}" Click="SaveButton_Click"
+                        AutomationProperties.AutomationId="BtnSaveTuning" AutomationProperties.Name="Save"/>
+            </UniformGrid>
+        </Grid>
+    </Border>
+</Window>

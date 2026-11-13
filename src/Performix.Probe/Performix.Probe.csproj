@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Console self-check tool for the no-driver fork.
+    Reads live temperatures/RPM exactly like the app does (Predator Sense pipe first) and prints
+    the source chain, so acceptance never needs to start the GUI.
+
+    Usage:  PerformixProbe.exe [outputPath]
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PerformixProbe</AssemblyName>
+    <RootNamespace>PreySense.Probe</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Performix.Core\Performix.Core.csproj" />
+  </ItemGroup>
+
+</Project>

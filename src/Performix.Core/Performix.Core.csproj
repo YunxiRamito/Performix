@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Performix.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\Rgb\OemUsbKeyboardLayouts.json" LogicalName="PreySense.Core.Resources.Rgb.OemUsbKeyboardLayouts.json" />
+    <!--
+      No-driver fork: the PreySenseDriver.sys embedded resource was removed so the built
+      assemblies cannot ship or extract a kernel driver. It is only re-added when the build
+      explicitly opts back in with -p:EnableKernelDriver=true and the signed .sys is present.
+    -->
+    <EmbeddedResource Include="Resources\PreySenseDriver.sys"
+                      LogicalName="PreySense.Core.Resources.PreySenseDriver.sys"
+                      Condition="'$(EnableKernelDriver)' == 'true' and Exists('Resources\PreySenseDriver.sys')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NvAPIWrapper.Net" Version="0.8.1.101" />
+    <PackageReference Include="System.Management" Version="10.0.2" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

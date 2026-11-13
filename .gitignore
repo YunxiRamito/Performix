@@ -1,0 +1,42 @@
+# Build output
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Local publish / dist folders (dist, dist-winui, dist-prev, dist-next*, ...)
+dist*/
+publish/
+**/publish/
+
+# Test output
+TestResults/
+**/TestResults/
+*.trx
+
+# IDE / user state
+.vs/
+**/.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs, crash dumps, scratch
+*.log
+*.dmp
+*.tmp
+.tmp/
+scratch/
+
+# Local runtime state written next to the binaries
+appearance.json
+edition.txt
+preysense.json
+
+# Portable .NET SDK (~818 MB, never committed; scripts read PERFORMIX_DOTNET first)
+tools/
+
+# Local reports and research scratch
+outputs/

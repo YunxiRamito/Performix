@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Keyboard layout visualiser for the per-key RGB editor (S5).
+
+  This is the WinUI 3 replacement for the WPF self-drawn control
+  app\Fork\PreySense.Frontend\Controls\RgbKeyboardLayout.cs (335 lines of OnRender).
+  WinUI 3 has no OnRender, so every key is a real visual: one Border (+ TextBlock label
+  and a 2 DIP colour strip) placed on a Canvas at a fixed key-unit geometry.
+
+  Geometry is data driven exactly like the WPF original: the WinUI layout comes from the
+  same KeyboardLayoutGeometry key table, ported into KeyboardLayoutView.xaml.cs. Wire
+  indices always come from the detected OEM layout — the table only decides where a key
+  with a given name is drawn.
+
+  The control is sized to its content (max key right/bottom + 4 DIP). The page puts it in
+  a Viewbox with StretchDirection=DownOnly so a wide keyboard shrinks instead of scrolling.
+-->
+<UserControl
+    x:Class="Predex.WinUI.Controls.KeyboardLayoutView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    IsTabStop="True"
+    UseSystemFocusVisuals="True"
+    GotFocus="OnGotFocus"
+    KeyDown="OnKeyDown">
+
+  <!-- Background=Transparent so the whole key field is hit-testable for a future
+       rubber-band selection; individual keys handle their own taps. -->
+  <Canvas x:Name="KeyCanvas" Background="Transparent"/>
+</UserControl>

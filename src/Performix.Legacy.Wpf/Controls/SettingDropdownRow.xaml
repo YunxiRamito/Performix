@@ -1,0 +1,79 @@
+<UserControl x:Class="PreySense.Frontend.Controls.SettingDropdownRow"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:controls="clr-namespace:PreySense.Frontend.Controls"
+             mc:Ignorable="d"
+             d:DesignWidth="400"
+             x:Name="RootDropdownRow">
+    <Grid HorizontalAlignment="Stretch" MinHeight="28" Margin="{DynamicResource StandardRowMargin}"
+          ToolTipService.ToolTip="{Binding HelpText, ElementName=RootDropdownRow}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding Title, ElementName=RootDropdownRow}"
+                           Style="{DynamicResource SettingLabelStyle}"
+                           VerticalAlignment="Center" />
+                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Info}" Size="11" Margin="6,0,0,0"
+                                     Foreground="{DynamicResource TextSecondaryBrush}">
+                    <controls:FluentIcon.Style>
+                        <Style TargetType="controls:FluentIcon">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HelpText, ElementName=RootDropdownRow}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding HelpText, ElementName=RootDropdownRow}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </controls:FluentIcon.Style>
+                </controls:FluentIcon>
+            </StackPanel>
+            <TextBlock Text="{Binding Subtitle, ElementName=RootDropdownRow}"
+                       FontSize="{DynamicResource FontSizeSmall}"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       TextWrapping="Wrap" Margin="0,2,0,0">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Subtitle, ElementName=RootDropdownRow}" Value="">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Subtitle, ElementName=RootDropdownRow}" Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </StackPanel>
+
+        <ComboBox x:Name="InnerComboBox" Grid.Column="1" VerticalAlignment="Center"
+                  Width="{Binding DropdownWidth, ElementName=RootDropdownRow}"
+                  MinWidth="{Binding DropdownMinWidth, ElementName=RootDropdownRow}"
+                  Height="28" FontSize="{DynamicResource FontSizeControl}"
+                  VerticalContentAlignment="Center"
+                  AutomationProperties.AutomationId="{Binding ComboBoxAutomationId, ElementName=RootDropdownRow}"
+                  AutomationProperties.Name="{Binding Title, ElementName=RootDropdownRow}"
+                  ItemsSource="{Binding ItemsSource, ElementName=RootDropdownRow}"
+                  SelectionChanged="InnerComboBox_SelectionChanged">
+            <!-- W8: the inner ComboBox is the single source of truth for the selection.
+                 Only SelectedIndex is bound (TwoWay); SelectedItem is mirrored from
+                 code-behind so the two properties cannot write over each other. -->
+            <ComboBox.SelectedIndex>
+                <Binding Path="SelectedIndex" ElementName="RootDropdownRow" Mode="TwoWay" />
+            </ComboBox.SelectedIndex>
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Converter={StaticResource TranslateConverter}}" />
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+    </Grid>
+</UserControl>

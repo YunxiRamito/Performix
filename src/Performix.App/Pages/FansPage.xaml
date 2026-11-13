@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fans page (S4) — the WPF Views\FanCurveWindow migrated into the single-window shell.
+
+  Layout follows docs\UI-REDESIGN.md "风扇曲线窗口（同轮一起改）" and docs\UI-DESIGN-RULES.md §3:
+  one narrow column, grouping by 12 px spacing + 1 px dividers, row language "label left / control
+  right", font sizes 11/12 only, radius 4/6 only, no card-in-card.
+
+  The two charts are self-drawn by Controls\FanCurveCanvas.cs (Canvas + Polyline + Line + Ellipse,
+  i.e. approach A). WinUI 3 has no OnRender, so the element tree is the drawing.
+
+  Editing is gated by the fan control mode: in Auto / Max the whole editor block is greyed out
+  (IsEnabled=false + Opacity 0.45) and the card tooltip explains how to unlock it. The mode row
+  itself stays interactive, otherwise "switch to Custom or Curve" would be impossible.
+-->
+<Page
+    x:Class="Predex.WinUI.Pages.FansPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Predex.WinUI.Controls"
+    xmlns:local="using:Predex.WinUI"
+    Background="Transparent"
+    IsTabStop="True" UseSystemFocusVisuals="False">
+
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="44"/>
+    </Grid.RowDefinitions>
+    <!-- X1: pinned action bar (44 DIP) below the scroll area. -->
+    <ScrollViewer Grid.Row="0" Padding="12,10,12,12"
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto">
+
+    <StackPanel Spacing="12">
+
+      <!-- ═══ PAGE SUBTITLE (the shell title bar already names the page) ═══ -->
+      <TextBlock Text="{x:Bind local:Loc.T('Fan curves, live RPM and the curve editor.')}"
+                 Style="{StaticResource PageSubtitleStyle}"
+                 AutomationProperties.AutomationId="TxtFansSubtitle"/>
+
+      <!-- ═══ PROFILE MODE (which operating mode's curve is being edited) ═══ -->
+      <StackPanel Spacing="6">
+        <Grid ColumnSpacing="12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="{x:Bind local:Loc.T('Profile Mode')}"
+                     Style="{StaticResource SectionTitleStyle}"/>
+          <ComboBox x:Name="ProfileCombo" Grid.Column="1"
+                    Width="132" CornerRadius="4" FontSize="12"
+                    AutomationProperties.Name="{x:Bind local:Loc.T('Profile Mode')}"
+                    SelectionChanged="ProfileCombo_SelectionChanged"/>
+        </Grid>
+        <TextBlock Text="{x:Bind EditingHint, Mode=OneWay}"
+                   Style="{StaticResource CaptionTextStyle}"
+                   TextWrapping="Wrap"/>
+
+        <!-- F2 + R4 bug 3: live RPM moved out of the greyed-out editor block and reads the
+             same MainViewModel.CpuFanText / GpuFanText as home and tuning (one mapping only). -->
+        <Grid ColumnSpacing="12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Live RPM')}"
+                     Style="{StaticResource CaptionTextStyle}"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="CPU" Style="{StaticResource CaptionTextStyle}"/>
+              <TextBlock Text="{x:Bind CpuFanText, Mode=OneWay}" Style="{StaticResource StatusTextStyle}"
+                         AutomationProperties.AutomationId="TxtFansCpuFan"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="GPU" Style="{StaticResource CaptionTextStyle}"/>
+              <TextBlock Text="{x:Bind GpuFanText, Mode=OneWay}" Style="{StaticResource StatusTextStyle}"
+                         AutomationProperties.AutomationId="TxtFansGpuFan"/>
+            </StackPanel>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
+
+      <Border Height="1" Background="{StaticResource BorderSubtleBrush}"/>
+
+      <!-- ═══ CONTROL MODE (stays interactive while the editor below is locked) ═══
+           ContentControl wrapper: the group is disabled while a mode change is being written
+           to the EC, and only Control has IsEnabled (a Grid carrying it fails the XAML compiler). -->
+      <ContentControl x:Name="ModeRow"
+                      HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+      <Grid ColumnSpacing="6">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <RadioButton x:Name="AutoMode" Grid.Column="0" GroupName="FanControl"
+                     Content="{x:Bind local:Loc.T('Auto')}" FontSize="11"
+                     Checked="ModeRadio_Checked"
+                     AutomationProperties.Name="{x:Bind local:Loc.T('Auto')}"/>
+        <RadioButton x:Name="MaxMode" Grid.Column="1" GroupName="FanControl"
+                     Content="{x:Bind local:Loc.T('Max')}" FontSize="11"
+                     Checked="ModeRadio_Checked"
+                     AutomationProperties.Name="{x:Bind local:Loc.T('Max')}"/>
+        <RadioButton x:Name="CustomMode" Grid.Column="2" GroupName="FanControl"
+                     Content="{x:Bind local:Loc.T('Custom')}" FontSize="11"
+                     Checked="ModeRadio_Checked"
+                     AutomationProperties.Name="{x:Bind local:Loc.T('Custom')}"/>
+        <RadioButton x:Name="CurveMode" Grid.Column="3" GroupName="FanControl"
+                     Content="{x:Bind local:Loc.T('Curve')}" FontSize="11"
+                     Checked="ModeRadio_Checked"
+                     AutomationProperties.Name="{x:Bind local:Loc.T('Curve')}"/>
+      </Grid>
+      </ContentControl>
+
+      <!-- F3: why the editor is greyed out — right under the mode row so the reason is
+           visible before the wall of disabled controls (also in the card tooltip). -->
+      <TextBlock Text="{x:Bind local:Loc.T('Switch to Custom or Curve mode to edit the curve.')}"
+                 Style="{StaticResource BodyTextStyle}"
+                 Visibility="{x:Bind LockedHintVisibility, Mode=OneWay}"
+                 AutomationProperties.AutomationId="TxtFansLockedHint"/>
+
+      <!-- ═══ CURVE EDITOR (greyed out unless Custom / Curve) ═══ -->
+      <Border x:Name="EditorCard"
+              Style="{StaticResource CardStyle}"
+              ToolTipService.ToolTip="{x:Bind EditorTooltip, Mode=OneWay}">
+        <!-- ContentControl (not Grid) because only Control has IsEnabled; a Panel carrying
+             IsEnabled is rejected by the XAML compiler (silently, exit 1). -->
+        <ContentControl x:Name="EditorArea"
+              IsEnabled="{x:Bind EditorEnabled, Mode=OneWay}"
+              HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+              Opacity="{x:Bind EditorOpacity, Mode=OneWay}">
+
+          <StackPanel Spacing="8">
+
+            <!-- CPU curve -->
+            <StackPanel Spacing="4">
+              <Grid ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="CpuTitle"
+                           Text="{x:Bind local:Loc.T('CPU Fan')}"
+                           Style="{StaticResource LabelTextStyle}"
+                           TextAlignment="Left"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind CpuPointText, Mode=OneWay}"
+                           Style="{StaticResource StatusTextStyle}"/>
+              </Grid>
+              <controls:FanCurveCanvas x:Name="CpuChart" Height="136"
+                                       SnapToGrid="True"
+                                       AccentBrush="{StaticResource AccentBrush}"
+                                       GridBrush="{StaticResource BorderSubtleBrush}"
+                                       LabelBrush="{StaticResource TextMutedBrush}"
+                                       DotFillBrush="{StaticResource WindowBgBrush}"/>
+            </StackPanel>
+
+            <!-- GPU curve -->
+            <StackPanel Spacing="4">
+              <Grid ColumnSpacing="6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('GPU Fan')}"
+                           Style="{StaticResource LabelTextStyle}"
+                           TextAlignment="Left"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind GpuPointText, Mode=OneWay}"
+                           Style="{StaticResource StatusTextStyle}"/>
+              </Grid>
+              <controls:FanCurveCanvas x:Name="GpuChart" Height="136"
+                                       SnapToGrid="True"
+                                       AccentBrush="{StaticResource AccentBrush}"
+                                       GridBrush="{StaticResource BorderSubtleBrush}"
+                                       LabelBrush="{StaticResource TextMutedBrush}"
+                                       DotFillBrush="{StaticResource WindowBgBrush}"/>
+            </StackPanel>
+
+            <Border Height="1" Background="{StaticResource BorderSubtleBrush}"/>
+
+            <!-- Parameter rows: ramps / hysteresis / live RPM (read only) -->
+            <StackPanel Spacing="6">
+              <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Ramp up (%/s)')}"
+                           Style="{StaticResource BodyTextStyle}"
+                           VerticalAlignment="Center"/>
+                <NumberBox x:Name="RampUpBox" Grid.Column="1" Width="104"
+                           Minimum="1" Maximum="50" SmallChange="1" LargeChange="5"
+                           SpinButtonPlacementMode="Compact" FontSize="12"
+                           ValueChanged="CurveField_Changed"
+                           AutomationProperties.Name="{x:Bind local:Loc.T('Ramp up (%/s)')}"/>
+              </Grid>
+              <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Ramp down (%/s)')}"
+                           Style="{StaticResource BodyTextStyle}"
+                           VerticalAlignment="Center"/>
+                <NumberBox x:Name="RampDownBox" Grid.Column="1" Width="104"
+                           Minimum="1" Maximum="50" SmallChange="1" LargeChange="5"
+                           SpinButtonPlacementMode="Compact" FontSize="12"
+                           ValueChanged="CurveField_Changed"
+                           AutomationProperties.Name="{x:Bind local:Loc.T('Ramp down (%/s)')}"/>
+              </Grid>
+              <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Hysteresis')}"
+                           Style="{StaticResource BodyTextStyle}"
+                           VerticalAlignment="Center"/>
+                <NumberBox x:Name="HysteresisBox" Grid.Column="1" Width="104"
+                           Minimum="0" Maximum="5" SmallChange="1" LargeChange="1"
+                           SpinButtonPlacementMode="Compact" FontSize="12"
+                           ValueChanged="CurveField_Changed"
+                           AutomationProperties.Name="{x:Bind local:Loc.T('Hysteresis')}"/>
+              </Grid>
+
+            </StackPanel>
+
+            <!-- Options -->
+            <Grid ColumnSpacing="12">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <CheckBox x:Name="ClampOption" Grid.Column="0"
+                        Content="{x:Bind local:Loc.T('Clamp to Grid (5 %)')}" FontSize="11"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Clamp to Grid (5 %)')}"/>
+              <CheckBox x:Name="AutoApplyOption" Grid.Column="1"
+                        Content="{x:Bind local:Loc.T('Auto Apply')}" FontSize="11"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Auto Apply')}"/>
+            </Grid>
+
+          </StackPanel>
+        </ContentControl>
+      </Border>
+
+
+
+
+      <TextBlock x:Name="ErrorText" Visibility="Collapsed"
+                 Foreground="{StaticResource BrandBrush}"
+                 Style="{StaticResource BodyTextStyle}"/>
+    </StackPanel>
+  </ScrollViewer>
+
+  <Border x:Name="PageFooter" Grid.Row="1" BorderThickness="0,1,0,0"
+          BorderBrush="{StaticResource BorderSubtleBrush}">
+    <Grid ColumnSpacing="8" Margin="12,6,12,6">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+      <Button x:Name="ApplyButton" Grid.Column="0"
+              Content="{x:Bind local:Loc.T('Apply')}"
+              Style="{StaticResource AccentButtonStyle}"
+              Height="32" HorizontalAlignment="Stretch" FontSize="11"
+              Click="Apply_Click"
+              AutomationProperties.Name="{x:Bind local:Loc.T('Apply')}"/>
+      <Button x:Name="RestoreButton" Grid.Column="1"
+              Content="{x:Bind local:Loc.T('Restore Defaults')}"
+              Height="32" HorizontalAlignment="Stretch" FontSize="11"
+              Click="Restore_Click"
+              AutomationProperties.Name="{x:Bind local:Loc.T('Restore Defaults')}"/>
+    </Grid>
+  </Border>
+  </Grid>
+</Page>

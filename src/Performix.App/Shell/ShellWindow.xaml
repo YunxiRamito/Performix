@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Predex.WinUI shell window — S1 layout (docs\UI-DESIGN-RULES.md §6) + R2 interaction pass.
+
+  • One window, fixed 320 DIP wide. Home is 116 (collapsed) or 280 (expanded) tall; every
+    other page asks the shell for a window as tall as its content (clamped to the work
+    area), so a page never wastes height and never scrolls in a too-small window.
+  • Root is Transparent: the visible surface is the DWM Mica backdrop + the DWM round
+    corner. No full-window Border, no semi-transparent dark sheet, no title-bar padding.
+  • Title bar is 40 DIP: [Predator mark + "Performix" + CPU/GPU temperature] or [back + page
+    title], plus the expand chevron on Home. There are deliberately NO minimize/maximize/
+    close buttons (R2 interaction pass): this is a tray panel — Esc, the tray menu's "退出",
+    and "click anywhere else" (the window hides when it loses focus) are the exits.
+  • R3 changes: the ▲ placeholder is replaced by the Predator mark; the version moved out of
+    the title bar to a bottom-left "v0.1.0-alpha.1" footer that only exists in the expanded
+    home density; the window is NOT draggable any more on request (no SetTitleBar, no
+    WM_NCLBUTTONDOWN), so the title bar is pure chrome; the expand chevron got a 40×40 DIP
+    hit target.
+  • Navigation is page-in-window: the home entry row opens Tuning / Fans / Lighting /
+    Overlay / Settings.
+-->
+<Window
+    x:Class="Predex.WinUI.Shell.ShellWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:Predex.WinUI"
+    xmlns:controls="using:Predex.WinUI.Controls"
+    mc:Ignorable="d"
+    Title="Performix">
+
+  <Window.SystemBackdrop>
+    <MicaBackdrop Kind="BaseAlt"/>
+  </Window.SystemBackdrop>
+
+  <Grid x:Name="RootGrid" Background="Transparent">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="40"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+
+    <!-- ═══ TITLE BAR (40 DIP) ═══ -->
+    <Grid x:Name="TitleBarRoot" Grid.Row="0" Background="Transparent">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+
+      <Grid x:Name="TitleBarLeft" Grid.Column="0" Background="Transparent">
+        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
+
+          <!-- Home chrome: Performix mark + "Performix" + live CPU/GPU temperature.
+               The temperatures carry CPU/GPU labels: two unlabelled numbers next to a
+               labelled fan row read as a mystery pair (R2 item 7 of the second review).
+               Both values use the same style — the first one used to be brighter than the
+               second for no reason.
+               R3: the old "▲" Path placeholder is gone. The mark is a generated placeholder
+               (assets\branding\performix-logo.png, 256 px) until an original logo exists —
+               it is deliberately NOT the OEM emblem. The version number no longer lives here —
+               it is the bottom-left footer below, expanded home density only. -->
+          <StackPanel x:Name="HomeChrome" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Image x:Name="BrandMark" Width="16" Height="16" VerticalAlignment="Center"
+                   Source="ms-appx:///Assets/performix-mark.png"
+                   AutomationProperties.AutomationId="ImgBrandMark"
+                   AutomationProperties.Name="Performix"/>
+            <TextBlock Text="Performix" FontSize="12" FontWeight="SemiBold" CharacterSpacing="120"
+                       Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+            <Border Width="1" Height="12" VerticalAlignment="Center"
+                    Background="{StaticResource BorderSubtleBrush}"/>
+            <!-- Title bar holds the wordmark and BOTH temperatures, and deliberately no version
+                 string: a 15-character pre-release version (v0.1.0-alpha.1) is what used to
+                 overflow 320 DIP and clip the GPU group's °C. The version now lives on the
+                 Settings page header. Measured at runtime by docs\theme-verify.ps1
+                 (TxtTitleCpuTemp / TxtTitleGpuTemp right edges vs. the expand chevron), not by
+                 estimation. -->
+            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+              <TextBlock Text="CPU" FontSize="11" FontWeight="Normal"
+                         Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+              <TextBlock Text="{x:Bind controls:TelemetryText.Value(ViewModel.CpuTemperatureText), Mode=OneWay}"
+                         Style="{StaticResource HeroTextStyle}"
+                         ToolTipService.ToolTip="CPU"
+                         AutomationProperties.AutomationId="TxtTitleCpuTemp"/>
+              <TextBlock Text="{x:Bind controls:TelemetryText.Unit(ViewModel.CpuTemperatureText), Mode=OneWay}"
+                         Style="{StaticResource UnitTextStyle}"
+                         AutomationProperties.AutomationId="TxtTitleCpuUnit"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="8,0,0,0">
+              <TextBlock Text="GPU" FontSize="11" FontWeight="Normal"
+                         Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+              <TextBlock Text="{x:Bind controls:TelemetryText.Value(ViewModel.GpuTemperatureText), Mode=OneWay}"
+                         Style="{StaticResource HeroTextStyle}"
+                         ToolTipService.ToolTip="GPU"
+                         AutomationProperties.AutomationId="TxtTitleGpuTemp"/>
+              <TextBlock Text="{x:Bind controls:TelemetryText.Unit(ViewModel.GpuTemperatureText), Mode=OneWay}"
+                         Style="{StaticResource UnitTextStyle}"
+                         AutomationProperties.AutomationId="TxtTitleGpuUnit"/>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- Page chrome: back + current page title -->
+          <StackPanel x:Name="PageChrome" Orientation="Horizontal" Spacing="8"
+                      VerticalAlignment="Center" Visibility="Collapsed">
+            <Button x:Name="BackButton" Style="{StaticResource CaptionButtonStyle}"
+                    AutomationProperties.AutomationId="BtnBack"
+                    AutomationProperties.Name="Back"
+                    Click="BackButton_Click">
+              <FontIcon Glyph="&#xE96F;" FontFamily="Segoe Fluent Icons" FontSize="12"
+                        Foreground="{StaticResource TextSecondaryBrush}"/>
+            </Button>
+            <TextBlock x:Name="PageTitleText" Text="Home" FontSize="16" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+          </StackPanel>
+        </StackPanel>
+      </Grid>
+
+      <!-- Right side: the expand chevron, nothing else.
+           Esc hides the window (both densities), the tray menu quits, and losing focus
+           hides it as well — the three caption buttons are gone on purpose.
+           R3: 40×40 DIP hit target (it used to be 28×28) filling the 40 DIP title bar, with
+           the CaptionButtonStyle hover/pressed fill inherited. -->
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                  VerticalAlignment="Center">
+        <Button x:Name="ExpandButton" Style="{StaticResource CaptionButtonStyle}"
+                Width="40" Height="40"
+                AutomationProperties.AutomationId="BtnExpand"
+                AutomationProperties.Name="Expand"
+                Click="ExpandButton_Click">
+          <FontIcon x:Name="ExpandGlyph" FontFamily="Segoe Fluent Icons" Glyph="&#xE70D;" FontSize="12"
+                    RenderTransformOrigin="0.5,0.5"
+                    Foreground="{StaticResource TextSecondaryBrush}"/>
+        </Button>
+      </StackPanel>
+
+      <!-- Hairline between the title bar and the page (single border language). -->
+      <Border Grid.ColumnSpan="2" Height="1" VerticalAlignment="Bottom" Margin="12,0"
+              Background="{StaticResource BorderSubtleBrush}"/>
+    </Grid>
+
+    <!-- ═══ PAGE HOST (one window, pages swapped in) ═══ -->
+    <Grid x:Name="PageHost" Grid.Row="1"/>
+
+    <!-- ═══ GLOBAL TOAST (S6: ModeToastWindow / InfoWindowService replacement) ═══
+         One InfoBar at the top of the page area, slid in with a 160 ms composition
+         Translation animation and auto-dismissed after 3 s by ShellWindow.ShowToast().
+         Chosen over a second popup window (the old WPF ModeToastWindow / InfoWindow form):
+         every extra XAML island is another HWND + its own visual tree, which fights the
+         hidden-to-tray memory target; the shell already owns this strip. -->
+    <InfoBar x:Name="ShellInfoBar" Grid.Row="1" IsOpen="False"
+             VerticalAlignment="Top" Margin="12,8,12,0"
+             Severity="Informational" IsClosable="True"
+             AutomationProperties.AutomationId="ShellInfoBar"/>
+  </Grid>
+</Window>

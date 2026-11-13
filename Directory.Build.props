@@ -1,0 +1,29 @@
+<Project>
+  <!--
+    Performix — one version number for every project in the repository.
+    Version may carry a pre-release suffix; AssemblyVersion / FileVersion must stay
+    four-part numeric (csc CS7034 otherwise). The UI reads InformationalVersion.
+  -->
+  <PropertyGroup>
+    <Version>0.1.0-alpha.1</Version>
+    <AssemblyVersion>0.1.0.1</AssemblyVersion>
+    <FileVersion>0.1.0.1</FileVersion>
+  </PropertyGroup>
+
+  <!--
+    Kernel-driver compile switch (no-driver fork).
+
+    EnableKernelDriver=false (the default and the only supported value in this fork)
+    defines PREYSENSE_NO_DRIVER for every project. The driver/SCM access paths are then
+    compiled as stubs that fail fast and never touch the OS (no .sys, no service, no IOCTL).
+    Re-enabling the driver layer would additionally require a real PreySenseDriver.sys to be
+    embedded into Performix.Core (see src/Performix.Core/Performix.Core.csproj) and
+    -p:EnableKernelDriver=true.
+  -->
+  <PropertyGroup>
+    <EnableKernelDriver Condition="'$(EnableKernelDriver)' == ''">false</EnableKernelDriver>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableKernelDriver)' != 'true'">
+    <DefineConstants>$(DefineConstants);PREYSENSE_NO_DRIVER</DefineConstants>
+  </PropertyGroup>
+</Project>

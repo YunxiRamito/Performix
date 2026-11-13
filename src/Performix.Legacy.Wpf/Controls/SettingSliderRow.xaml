@@ -1,0 +1,84 @@
+<UserControl x:Class="PreySense.Frontend.Controls.SettingSliderRow"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:PreySense.Frontend.Controls"
+             x:Name="RootSliderRow">
+    <StackPanel Margin="0,2,0,0" HorizontalAlignment="Stretch"
+                ToolTipService.ToolTip="{Binding HelpText, ElementName=RootSliderRow}">
+        <Grid>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Title, ElementName=RootSliderRow}" Style="{DynamicResource SettingLabelStyle}" />
+                <controls:FluentIcon Glyph="{x:Static controls:FluentGlyphs.Info}" Size="11" Margin="6,0,0,0"
+                                     Foreground="{DynamicResource TextSecondaryBrush}">
+                    <controls:FluentIcon.Style>
+                        <Style TargetType="controls:FluentIcon">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HelpText, ElementName=RootSliderRow}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding HelpText, ElementName=RootSliderRow}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </controls:FluentIcon.Style>
+                </controls:FluentIcon>
+            </StackPanel>
+            <TextBlock>
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock" BasedOn="{StaticResource SettingValueStyle}">
+                        <Setter Property="FontSize" Value="{DynamicResource FontSizeBody}" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                        <Setter Property="HorizontalAlignment" Value="Right" />
+                        <Setter Property="TextAlignment" Value="Right" />
+                        <Setter Property="Text" Value="{Binding ValueText, ElementName=RootSliderRow}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding ValueText, ElementName=RootSliderRow}" Value="">
+                                <Setter Property="Text" Value="{Binding BadgeText, ElementName=RootSliderRow}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding ValueText, ElementName=RootSliderRow}" Value="{x:Null}">
+                                <Setter Property="Text" Value="{Binding BadgeText, ElementName=RootSliderRow}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                            </DataTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Grid>
+        <TextBlock Text="{Binding Subtitle, ElementName=RootSliderRow}"
+                   FontSize="{DynamicResource FontSizeSmall}"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   TextWrapping="Wrap" Margin="0,2,0,0">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Subtitle, ElementName=RootSliderRow}" Value="">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Subtitle, ElementName=RootSliderRow}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+        <Slider x:Name="InnerSlider"
+                Minimum="{Binding Minimum, ElementName=RootSliderRow}"
+                Maximum="{Binding Maximum, ElementName=RootSliderRow}"
+                Value="{Binding Value, ElementName=RootSliderRow, Mode=TwoWay}"
+                SmallChange="{Binding SmallChange, ElementName=RootSliderRow}"
+                LargeChange="{Binding LargeChange, ElementName=RootSliderRow}"
+                TickFrequency="{Binding TickFrequency, ElementName=RootSliderRow}"
+                IsSnapToTickEnabled="{Binding IsSnapToTickEnabled, ElementName=RootSliderRow}"
+                AutomationProperties.AutomationId="{Binding SliderAutomationId, ElementName=RootSliderRow}"
+                AutomationProperties.Name="{Binding Title, ElementName=RootSliderRow}"
+                MinHeight="20"
+                Margin="0,2,0,0"
+                ValueChanged="InnerSlider_ValueChanged" />
+    </StackPanel>
+</UserControl>

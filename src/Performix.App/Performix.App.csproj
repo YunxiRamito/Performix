@@ -1,0 +1,114 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <!-- C# namespaces stay Predex.WinUI on purpose (see README "known technical debt"). -->
+    <RootNamespace>Predex.WinUI</RootNamespace>
+    <AssemblyName>Performix</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWinUI>true</UseWinUI>
+    <Platforms>x64</Platforms>
+    <SelfContained>false</SelfContained>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
+    <Optimize>true</Optimize>
+    <Product>Performix</Product>
+    <AssemblyTitle>Performix</AssemblyTitle>
+    <Company>Performix</Company>
+    <!-- Version / AssemblyVersion / FileVersion come from the repository-root
+         Directory.Build.props (0.1.0-alpha.1 / 0.1.0.1) so every project shares one number.
+         Version allows the pre-release suffix; AssemblyVersion / FileVersion must stay
+         four-part numeric or csc rejects them (CS7034); the UI shows InformationalVersion
+         (see UpdateCheckService). -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- Bundle the Windows App Runtime into the output directory so the target machine
+         does not need a separate runtime install. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Must stay enabled: the Windows App SDK build targets emit resources.pri
+         (App.xbf / MainWindow.xbf / Styles/*.xbf + framework resources). With it off,
+         neither .pri nor .xbf lands in the output directory and the unpackaged app crashes
+         at startup while resolving ms-appx:///Microsoft.UI.Xaml/... resources.
+         Verified with the portable SDK (tools\dotnet-sdk, no Visual Studio): with
+         EnableMsixTooling=true the build produces a clean resources.pri and needs neither
+         a tools\pri-stub substitute DLL nor a makepri hack. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- MVVM Toolkit's WinRT AOT analyzer hints do not apply here (no AOT). -->
+    <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250205002" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Performix.Core\Performix.Core.csproj" />
+    <ProjectReference Include="..\Performix.Overlay\Performix.Overlay.csproj" />
+  </ItemGroup>
+
+  <!-- Link ViewModels from the WPF frontend — compiled with WpfShims for Dispatcher compat -->
+  <ItemGroup>
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.cs"                Link="ViewModels\MainViewModel.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.CpuScheduling.cs"  Link="ViewModels\MainViewModel.CpuScheduling.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Display.cs"        Link="ViewModels\MainViewModel.Display.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Fans.cs"           Link="ViewModels\MainViewModel.Fans.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Gpu.cs"            Link="ViewModels\MainViewModel.Gpu.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.GpuBaseline.cs"    Link="ViewModels\MainViewModel.GpuBaseline.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.GpuClockTuning.cs" Link="ViewModels\MainViewModel.GpuClockTuning.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.GpuOffsets.cs"     Link="ViewModels\MainViewModel.GpuOffsets.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Lighting.cs"       Link="ViewModels\MainViewModel.Lighting.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.LightingApply.cs"  Link="ViewModels\MainViewModel.LightingApply.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.LightingDevices.cs" Link="ViewModels\MainViewModel.LightingDevices.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.ModeTuning.cs"     Link="ViewModels\MainViewModel.ModeTuning.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.PowerModes.cs"     Link="ViewModels\MainViewModel.PowerModes.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Prochot.cs"        Link="ViewModels\MainViewModel.Prochot.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Services.cs"       Link="ViewModels\MainViewModel.Services.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Session.cs"        Link="ViewModels\MainViewModel.Session.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Telemetry.cs"      Link="ViewModels\MainViewModel.Telemetry.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Theme.cs"          Link="ViewModels\MainViewModel.Theme.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.Tuning.cs"         Link="ViewModels\MainViewModel.Tuning.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.TuningApply.cs"    Link="ViewModels\MainViewModel.TuningApply.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.TuningCalibration.cs" Link="ViewModels\MainViewModel.TuningCalibration.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\ViewModels\MainViewModel.UsbCharging.cs"    Link="ViewModels\MainViewModel.UsbCharging.cs" />
+  </ItemGroup>
+
+  <!-- Link WPF-free service files from the WPF frontend -->
+  <ItemGroup>
+    <Compile Include="..\Performix.Legacy.Wpf\Services\UiText.cs"                    Link="Services\UiText.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\StartupTaskService.cs"        Link="Services\StartupTaskService.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\StartupDiagnostics.cs"        Link="Services\StartupDiagnostics.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\LatestBackgroundWorker.cs"    Link="Services\LatestBackgroundWorker.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\UiDebouncer.cs"               Link="Services\UiDebouncer.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\ProductionHardwareService.cs" Link="Services\ProductionHardwareService.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\OverlayBridge.cs"             Link="Services\OverlayBridge.cs" />
+    <Compile Include="..\Performix.Legacy.Wpf\Services\ProbeMode.cs"                 Link="Services\ProbeMode.cs" />
+    <!-- VM-side user-prompt abstraction (the concrete shape of IDialogService, see
+         docs\WINUI3-MIGRATION.md §7.4). The WPF implementation WpfUserPromptService.cs
+         opens real windows, so it is not linked. -->
+    <Compile Include="..\Performix.Legacy.Wpf\Services\IUserPromptService.cs"        Link="Services\IUserPromptService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\appicon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- R3: title-bar brand mark — generated placeholder (assets\branding\performix-logo.png),
+         not an OEM trademark asset. Replace with an original logo later. -->
+    <Content Include="Assets\performix-mark.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Do not re-add a hand-written makepri target here. The old Predex.pri generation
+       (makepri.exe + staging directory, AfterTargets="Build") was a root cause of startup
+       crashes: it indexed Microsoft.UI.pri / Microsoft.UI.Xaml.Controls.pri content into the
+       same PRI, and MRM then corrupted the heap while resolving resources in
+       Application.Start -> App.LoadComponent (0xC0000374, ~50% of launches).
+       EnableMsixTooling=true produces the supported resources.pri instead. -->
+
+</Project>

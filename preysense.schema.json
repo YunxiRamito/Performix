@@ -1,0 +1,671 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PreySense Settings",
+  "description": "Readable PreySense schema version 2 settings. Older files are not migrated; unsupported or missing schema versions are rejected without modifying the file.",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "General",
+    "Display",
+    "Battery",
+    "Session",
+    "Tuning",
+    "Fans",
+    "Lighting",
+    "Overlay"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "type": "integer",
+      "const": 2,
+      "title": "Settings Format Version",
+      "description": "Must be 2. Version 1, future versions, and files without an explicit version are not supported or automatically converted."
+    },
+    "General": {
+      "type": "object",
+      "properties": {
+        "Language": {
+          "type": "string",
+          "description": "Supported UI language code (e.g., en-US, zh-CN, hi-IN, es-ES, fr-FR).",
+          "title": "Language"
+        },
+        "Theme": {
+          "type": ["string", "null"],
+          "enum": ["Dark", "Light", "Glass", null],
+          "title": "Theme",
+          "description": "Glass uses Windows 11 Desktop Acrylic with translucent controls. Null retains a legacy light preference; otherwise Dark is the default."
+        },
+        "LightTheme": {
+          "type": "boolean",
+          "description": "True for light UI theme, false for dark UI theme.",
+          "title": "Light Theme"
+        },
+        "AcerServicesDebloated": {
+          "type": "boolean",
+          "description": "True if Acer background services are stopped and disabled.",
+          "title": "Acer Services Debloated"
+        },
+        "HardwareTuningEnabled": {
+          "type": "boolean",
+          "description": "Enables optional driver-based tuning controls; this is not a measured hardware state.",
+          "title": "Hardware Tuning Enabled"
+        }
+      },
+      "title": "General"
+    },
+    "Display": {
+      "type": "object",
+      "properties": {
+        "AutoRefreshRate": {
+          "type": "boolean",
+          "description": "Automatic 60Hz switch on battery.",
+          "title": "Auto Refresh Rate"
+        }
+      },
+      "title": "Display"
+    },
+    "Battery": {
+      "type": "object",
+      "properties": {
+        "UsbPowerOffChargingCutoffPercent": {
+          "type": "integer",
+          "enum": [0, 10, 20, 30],
+          "default": 0,
+          "title": "USB Power-Off Charging Battery Cutoff",
+          "description": "0 disables USB charging while off. Otherwise charge attached devices until laptop battery reaches 10, 20 or 30 percent. Supported USB port only."
+        },
+        "ChargeLimitEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Acer 80% battery charge care limit toggle. Default true (80%).",
+          "title": "Charge Limit Enabled"
+        },
+        "BatteryEnergySaver": {
+          "type": "boolean",
+          "description": "Automatic Windows energy saver toggle when on battery.",
+          "title": "Battery Energy Saver"
+        }
+      },
+      "title": "Battery"
+    },
+    "Session": {
+      "type": "object",
+      "properties": {
+        "ActivePowerMode": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            4,
+            5,
+            6
+          ],
+          "description": "0 = Quiet, 1 = Balanced, 4 = Performance, 5 = Turbo, 6 = Eco.",
+          "title": "Active Power Mode"
+        },
+        "AcPowerMode": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            4,
+            5,
+            6
+          ],
+          "title": "Ac Power Mode"
+        },
+        "BatteryPowerMode": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            4,
+            5,
+            6
+          ],
+          "title": "Battery Power Mode"
+        },
+        "GpuModePreference": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "description": "0 = Integrated, 1 = Dynamic/Optimus, 2 = Discrete.",
+          "title": "GPU Mode Preference"
+        }
+      },
+      "title": "Session"
+    },
+    "Tuning": {
+      "type": "object",
+      "properties": {
+        "Quiet": {
+          "$ref": "#/definitions/ModeTuning",
+          "title": "Quiet"
+        },
+        "Eco": {
+          "$ref": "#/definitions/ModeTuning",
+          "title": "Eco"
+        },
+        "Balanced": {
+          "$ref": "#/definitions/ModeTuning",
+          "title": "Balanced"
+        },
+        "Performance": {
+          "$ref": "#/definitions/ModeTuning",
+          "title": "Performance"
+        },
+        "Turbo": {
+          "$ref": "#/definitions/ModeTuning",
+          "title": "Turbo"
+        },
+        "FactoryDefaults": {
+          "type": "object",
+          "description": "Driver-read factory defaults, stored separately from optional user profiles.",
+          "additionalProperties": {
+            "$ref": "#/definitions/ModeTuning"
+          },
+          "title": "Factory Defaults"
+        },
+        "ApplyProchotOffset": {
+          "type": "boolean",
+          "description": "Include the global PROCHOT offset when applying tuning. False leaves it untouched.",
+          "title": "Apply PROCHOT Offset"
+        },
+        "ProchotOffsetCelsius": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 63,
+          "title": "PROCHOT Offset Celsius"
+        },
+        "FactoryProchotOffsetLocked": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "title": "Factory PROCHOT Offset Locked"
+        },
+        "FactoryProchotOffsetCelsius": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 63,
+          "title": "Factory PROCHOT Offset Celsius"
+        },
+        "GpuBasePowerWatts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 999,
+          "description": "Hardware default GPU power limit in Watts detected via NVML or factory calibration. Null until captured once. Valid range matches GpuPowerBaseline / GpuPowerLimitConfiguration (1-999 W).",
+          "title": "GPU Base Power Watts"
+        }
+      },
+      "title": "Tuning"
+    },
+    "Fans": {
+      "type": "object",
+      "properties": {
+        "Quiet": {
+          "$ref": "#/definitions/ModeFanCurve",
+          "title": "Quiet"
+        },
+        "Eco": {
+          "$ref": "#/definitions/ModeFanCurve",
+          "title": "Eco"
+        },
+        "Balanced": {
+          "$ref": "#/definitions/ModeFanCurve",
+          "title": "Balanced"
+        },
+        "Performance": {
+          "$ref": "#/definitions/ModeFanCurve",
+          "title": "Performance"
+        },
+        "Turbo": {
+          "$ref": "#/definitions/ModeFanCurve",
+          "title": "Turbo"
+        }
+      },
+      "title": "Fans"
+    },
+    "Lighting": {
+      "type": "object",
+      "properties": {
+        "Keyboard": {
+          "type": "object",
+          "properties": {
+            "Brightness": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "title": "Brightness"
+            },
+            "Speed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "title": "Speed"
+            },
+            "BacklightTimeoutSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 120,
+              "title": "Backlight Timeout Seconds"
+            },
+            "SelectedColorHex": {
+              "type": "string",
+              "title": "Selected Color Hex"
+            },
+            "SelectedZone": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4,
+              "title": "Selected Zone"
+            },
+            "SyncZones": {
+              "type": "boolean",
+              "title": "Sync Zones"
+            },
+            "Zone1ColorHex": {
+              "type": "string",
+              "title": "Zone1 Color Hex"
+            },
+            "Zone2ColorHex": {
+              "type": "string",
+              "title": "Zone2 Color Hex"
+            },
+            "Zone3ColorHex": {
+              "type": "string",
+              "title": "Zone3 Color Hex"
+            },
+            "Zone4ColorHex": {
+              "type": "string",
+              "title": "Zone4 Color Hex"
+            },
+            "EffectTag": {
+              "type": "string",
+              "title": "Effect Tag"
+            },
+            "PresetTheme": {
+              "type": "string",
+              "title": "Preset Theme"
+            }
+          },
+          "title": "Keyboard"
+        },
+        "Cover": {
+          "type": "object",
+          "properties": {
+            "Enabled": {
+              "type": "boolean",
+              "title": "Enabled"
+            },
+            "Mode": {
+              "type": "integer",
+              "title": "Mode"
+            },
+            "ColorHex": {
+              "type": "string",
+              "title": "Color Hex"
+            },
+            "Brightness": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "title": "Brightness"
+            },
+            "Speed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "title": "Speed"
+            },
+            "SyncWithKeyboard": {
+              "type": "boolean",
+              "title": "Sync With Keyboard"
+            }
+          },
+          "title": "Cover"
+        }
+      },
+      "title": "Lighting"
+    },
+    "Overlay": {
+      "type": "object",
+      "properties": {
+        "Theme": {
+          "type": "string",
+          "enum": ["Dark", "White"],
+          "title": "Overlay Theme",
+          "description": "Appearance preset selected in the overlay UI. Colors and opacity remain editable independently afterward."
+        },
+        "Enabled": {
+          "type": "boolean",
+          "title": "Enabled"
+        },
+        "ShowFps": {
+          "type": "boolean",
+          "title": "Show Fps"
+        },
+        "ScalePercent": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 200,
+          "title": "Scale Percent"
+        },
+        "BackgroundOpacityPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "title": "Background Opacity Percent",
+          "description": "Overlay background opacity: 0 is transparent, 100 is opaque."
+        },
+        "TextOpacityPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "title": "Text Opacity Percent",
+          "description": "Overlay text opacity: 0 is transparent, 100 is opaque."
+        },
+        "PositionHorizontal": {
+          "type": "string",
+          "enum": [
+            "Left",
+            "Center",
+            "Right"
+          ],
+          "title": "Position Horizontal"
+        },
+        "PositionVertical": {
+          "type": "string",
+          "enum": [
+            "Top",
+            "Center",
+            "Bottom"
+          ],
+          "title": "Position Vertical"
+        },
+        "Anchor": {
+          "type": "integer",
+          "title": "Anchor"
+        },
+        "OffsetX": {
+          "type": "integer",
+          "title": "OffsetX"
+        },
+        "OffsetY": {
+          "type": "integer",
+          "title": "OffsetY"
+        },
+        "Slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "CpuMetric": {
+                "type": "string",
+                "title": "CPU Metric"
+              },
+              "GpuMetric": {
+                "type": "string",
+                "title": "GPU Metric"
+              },
+              "ShowGraph": {
+                "type": "boolean",
+                "title": "Show Graph"
+              }
+            },
+            "required": [
+              "CpuMetric",
+              "GpuMetric"
+            ]
+          },
+          "title": "Slots"
+        },
+        "BackgroundColorHex": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#000000",
+          "description": "JSON-only RGB color; edit with PreySense closed."
+        },
+        "CpuTextColorHex": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#FFFFFF",
+          "description": "JSON-only RGB color; edit with PreySense closed."
+        },
+        "GpuTextColorHex": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#FFFFFF",
+          "description": "JSON-only RGB color; edit with PreySense closed."
+        },
+        "CpuGraphColorHex": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#2C7CB4",
+          "description": "JSON-only RGB color; edit with PreySense closed."
+        },
+        "GpuGraphColorHex": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#3AAA54",
+          "description": "JSON-only RGB color; edit with PreySense closed."
+        },
+        "CornerRadiusPixels": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16,
+          "default": 6,
+          "description": "JSON-only corner radius in base overlay pixels; 0 gives square corners. Scales with overlay size."
+        },
+        "GraphLineWidthPixels": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 4,
+          "default": 1.5,
+          "description": "JSON-only graph stroke width in screen pixels."
+        },
+        "ShowBackgroundShading": {
+          "type": "boolean",
+          "default": false,
+          "description": "JSON-only subtle top highlight and bottom shading."
+        }
+      },
+      "title": "Overlay"
+    }
+  },
+  "definitions": {
+    "ModeTuning": {
+      "type": "object",
+      "properties": {
+        "CpuPl1Watts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 5,
+          "maximum": 300,
+          "title": "CPU PL1 Watts",
+          "description": "CPU sustained power limit (PL1), in watts. Null means no user value has been saved."
+        },
+        "CpuPl2Watts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 5,
+          "maximum": 300,
+          "title": "CPU PL2 Watts",
+          "description": "CPU short-burst power limit (PL2), in watts; must be at least PL1. Null means no user value has been saved."
+        },
+        "CpuTurboTimeLimitSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 449,
+          "title": "CPU Turbo Time Limit Seconds",
+          "description": "CPU turbo power time-window selection in seconds. 449 is the Infinite UI selection, not a literal 449-second window. Null means unset."
+        },
+        "CpuBoost": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Legacy on/off boost flag. Prefer CpuBoostMode.",
+          "title": "CPU Boost"
+        },
+        "CpuBoostMode": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 6,
+          "description": "Windows PERFBOOSTMODE: 0 disabled, 1 enabled, 2 aggressive, 3 efficient enabled, 4 efficient aggressive, 5 aggressive at guaranteed, 6 efficient aggressive at guaranteed.",
+          "title": "CPU Boost Mode"
+        },
+        "GpuNominalPowerWatts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 999,
+          "title": "GPU Nominal Power Watts",
+          "description": "Nominal power reference from the captured baseline plus GPU offsets; not an enforced power-limit reading. Null if the verified baseline is unavailable."
+        },
+        "GpuPowerOffsetWatts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100,
+          "title": "GPU Power Offset Watts",
+          "multipleOf": 5,
+          "description": "GPU base-power offset in watts (CT). Kept separate from Dynamic Boost and the platform power offset."
+        },
+        "GpuDynamicBoostWatts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 25,
+          "title": "GPU Dynamic Boost Watts",
+          "multipleOf": 5
+        },
+        "ApplyCpuLimits": {
+          "type": "boolean",
+          "title": "Apply CPU Limits"
+        },
+        "ApplyGpuLimits": {
+          "type": "boolean",
+          "title": "Apply GPU Limits"
+        },
+        "ApplyGpuClockOffsets": {
+          "type": "boolean",
+          "title": "Apply GPU overclocking",
+          "description": "When false, skip all GPU clock-offset writes, including resets."
+        },
+        "GpuCoreClockOffsetMhz": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 500,
+          "title": "GPU core clock offset (MHz)",
+          "description": "Also constrained by the current NVIDIA driver/firmware range."
+        },
+        "GpuMemoryClockOffsetMhz": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 2147483,
+          "title": "GPU memory clock offset (MHz)",
+          "description": "Actual limits come from NVAPI P0 memory frequency-delta readback; this schema bound only prevents kHz integer overflow."
+        },
+        "PlatformPowerOffsetWatts": {
+          "title": "Platform power offset (W)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100,
+          "multipleOf": 5,
+          "description": "Acer ERM4 CP offset. This does not add to the nominal GPU wattage reference."
+        }
+      }
+    },
+    "ModeFanCurve": {
+      "type": "object",
+      "properties": {
+        "ControlMode": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ],
+          "title": "Control Mode"
+        },
+        "RampUpSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "title": "Ramp Up Seconds"
+        },
+        "Stages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/definitions/FanStage"
+          },
+          "title": "Stages",
+          "description": "Only reachable stages are stored, including the final plateau; 127 disables that sensor transition."
+        }
+      }
+    },
+    "FanStage": {
+      "type": "object",
+      "properties": {
+        "CpuTempC": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "title": "CPU temperature threshold (°C)"
+        },
+        "GpuTempC": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127,
+          "title": "GPU temperature threshold (°C)"
+        },
+        "CpuDutyPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "title": "CPU Duty Percent"
+        },
+        "GpuDutyPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "title": "GPU Duty Percent"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,795 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Predex.WinUI design tokens (S1, aligned to docs\UI-DESIGN-RULES.md).
+
+  Scale rules:
+    radii      4 (control) / 6 (card·tile) / 8 (content surface, drawn by DWM)
+    spacing    4 / 6 / 8 / 12 / 16 only
+    font size  11 (caption) / 12 (body·section title) / 14 (hero number) / 16 (page title)
+    text       3 levels + 1 accent
+
+  Rules that matter here:
+    • No full-window Border with a big radius (it fights the DWM round corner → black corners).
+    • No semi-transparent dark sheet over the Mica backdrop; the root stays Transparent.
+    • One border language per view: the home page groups with 1 px dividers, pages use cards.
+-->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- ═══════════════════════════════════════════════════════
+       COLOR TOKENS
+       ═══════════════════════════════════════════════════════ -->
+  <Color x:Key="WindowBg">#0A0A12</Color>
+  <Color x:Key="SectionBg">#14FFFFFF</Color>
+  <Color x:Key="SectionBgHover">#1FFFFFFF</Color>
+  <Color x:Key="BorderSubtle">#20FFFFFF</Color>
+  <Color x:Key="BorderStrong">#33FFFFFF</Color>
+  <Color x:Key="TextPrimary">#F2F2F2</Color>
+  <Color x:Key="TextSecondary">#A8A8BC</Color>
+  <Color x:Key="TextMuted">#7C7C90</Color>
+  <Color x:Key="Accent">#3B82F6</Color>
+  <Color x:Key="Brand">#FF4040</Color>
+
+  <!-- Mode accents: only the selected tile's icon/border uses these. -->
+  <Color x:Key="EcoColor">#2ECC71</Color>
+  <Color x:Key="QuietColor">#00E5FF</Color>
+  <Color x:Key="BalancedColor">#3B82F6</Color>
+  <Color x:Key="PerformanceColor">#FF4081</Color>
+  <Color x:Key="TurboColor">#BF00FF</Color>
+
+  <!-- ═══════════════════════════════════════════════════════
+       BRUSHES
+       ═══════════════════════════════════════════════════════ -->
+  <SolidColorBrush x:Key="WindowBgBrush"       Color="{StaticResource WindowBg}"/>
+  <SolidColorBrush x:Key="SectionBgBrush"      Color="{StaticResource SectionBg}"/>
+  <SolidColorBrush x:Key="SectionBgHoverBrush" Color="{StaticResource SectionBgHover}"/>
+  <SolidColorBrush x:Key="BorderSubtleBrush"   Color="{StaticResource BorderSubtle}"/>
+  <SolidColorBrush x:Key="BorderStrongBrush"   Color="{StaticResource BorderStrong}"/>
+  <SolidColorBrush x:Key="TextPrimaryBrush"    Color="{StaticResource TextPrimary}"/>
+  <SolidColorBrush x:Key="TextSecondaryBrush"  Color="{StaticResource TextSecondary}"/>
+  <SolidColorBrush x:Key="TextMutedBrush"      Color="{StaticResource TextMuted}"/>
+  <SolidColorBrush x:Key="AccentBrush"         Color="{StaticResource Accent}"/>
+  <SolidColorBrush x:Key="BrandBrush"          Color="{StaticResource Brand}"/>
+  <SolidColorBrush x:Key="TransparentBrush"    Color="Transparent"/>
+
+  <SolidColorBrush x:Key="EcoBrush"         Color="{StaticResource EcoColor}"/>
+  <SolidColorBrush x:Key="QuietBrush"       Color="{StaticResource QuietColor}"/>
+  <SolidColorBrush x:Key="BalancedBrush"    Color="{StaticResource BalancedColor}"/>
+  <SolidColorBrush x:Key="PerformanceBrush" Color="{StaticResource PerformanceColor}"/>
+  <SolidColorBrush x:Key="TurboBrush"       Color="{StaticResource TurboColor}"/>
+
+  <!-- ═══════════════════════════════════════════════════════
+       TYPOGRAPHY
+       ═══════════════════════════════════════════════════════ -->
+  <x:String x:Key="AppFont">Segoe UI Variable Text</x:String>
+  <x:Double x:Key="FontSizeCaption">11</x:Double>
+  <x:Double x:Key="FontSizeBody">12</x:Double>
+  <x:Double x:Key="FontSizeHero">14</x:Double>
+  <x:Double x:Key="FontSizePageTitle">16</x:Double>
+
+  <!-- ═══════════════════════════════════════════════════════
+       LAYOUT TOKENS (R2: one source for gaps and tile height)
+       ═══════════════════════════════════════════════════════
+       §3.1 of UI-DESIGN-RULES: 4 (inline) / 6 (tight) / 12 (group) / 16 (block).
+       Use these in Spacing= so two rows cannot drift apart a couple of DIP. -->
+  <x:Double x:Key="GapInline">4</x:Double>
+  <x:Double x:Key="GapTight">6</x:Double>
+  <x:Double x:Key="GapGroup">12</x:Double>
+  <x:Double x:Key="GapBlock">16</x:Double>
+
+  <!-- The performance-mode selector is ONE control: the Home row and the Tuning card row
+       take their height from here so the two pages cannot disagree. -->
+  <x:Double x:Key="TileHeight">52</x:Double>
+
+  <!-- ═══════════════════════════════════════════════════════
+       RADIUS / SURFACE TOKENS (appearance page)
+       ═══════════════════════════════════════════════════════
+       Two corner tokens, both consumed through {ThemeResource} so a style written against
+       them re-resolves when the appearance page switches window style:
+         AppControlCornerRadius — 4 DIP; buttons, chips, combos, captions
+         AppOverlayCornerRadius — 6 DIP; cards, tiles
+       CornerRadiusHelper overwrites both at Application.Resources root (0 for the
+       Windows 10 "square" style), so the styles below must not hard-code 4 / 6 any more.
+       TileFillBrush / TileSelectedFillBrush are the neutral / 15 % accent tile surfaces the
+       appearance tiles share with the home mode tiles; AppearanceService recolours them with
+       the active theme and accent (they are the same SolidColorBrush instances every page
+       holds through StaticResource; the idle variants are theme-dictionary brushes read with
+       {ThemeResource}, so they follow the element theme instead.) -->
+  <CornerRadius x:Key="AppControlCornerRadius">4</CornerRadius>
+  <CornerRadius x:Key="AppOverlayCornerRadius">6</CornerRadius>
+  <!-- Selected tile fill: one shared brush because the 15 % accent tint is alpha-blended and
+       therefore reads correctly on both the dark and the light card. AppearanceService
+       recolours it when the accent changes. The *idle* tile fill cannot be shared (white 8 %
+       over a dark card / black 6 % over a light card), so it lives in the theme dictionaries
+       as TileIdleFillBrush — see the "APPEARANCE BRUSHES" block there. -->
+  <SolidColorBrush x:Key="TileSelectedFillBrush" Color="#263B82F6"/>
+
+  <!-- ═══════════════════════════════════════════════════════
+       TEXT STYLES
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="PageTitleStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizePageTitle}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+  </Style>
+
+  <!-- The shell already prints the page name in the 40 DIP title bar; a page never repeats
+       it as a big heading. What a page may add is one line of subtitle (R2 item 3). -->
+  <Style x:Key="PageSubtitleStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
+
+  <!-- Card title: 12 SemiBold Secondary, NO leading icon. The icon gutter pushed the title
+       20 DIP right of the row labels in the same card, which is exactly the left-edge
+       drift R2 item 4 flagged. Titles, labels and body text all start at the card's
+       content edge now. -->
+  <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+
+  <!-- Right-hand value inside a card title row ("30s", "均衡"). One style for every card:
+       it used to be 14 SemiBold Primary on the lighting page and 11 Muted in tuning, so the
+       same slot read as two different things (R2 item 6). -->
+  <Style x:Key="CardValueTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeBody}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
+  </Style>
+
+  <Style x:Key="LabelTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="TextAlignment" Value="Center"/>
+  </Style>
+
+  <Style x:Key="StatusTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
+  </Style>
+
+  <Style x:Key="HeroTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeHero}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
+  </Style>
+
+  <Style x:Key="CaptionTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+
+  <!-- Unit run next to a hero value ("RPM" after "4109"): 11 Regular Muted, bottom-aligned
+       so it sits on the number's baseline instead of floating in the middle of the line. -->
+  <Style x:Key="UnitTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Bottom"/>
+    <Setter Property="Margin" Value="0,0,0,1"/>
+  </Style>
+
+  <Style x:Key="BodyTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
+
+  <Style x:Key="ChipTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+
+  <!-- ═══════════════════════════════════════════════════════
+       CAPTION BUTTONS (28×28, radius 4)
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="CaptionButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+    <Setter Property="Width" Value="28"/>
+    <Setter Property="Height" Value="28"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid>
+            <Border x:Name="Bg" Background="Transparent" CornerRadius="{ThemeResource AppControlCornerRadius}"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgHoverBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.4"/>
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="CloseCaptionButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid>
+            <Border x:Name="Bg" Background="Transparent" CornerRadius="{ThemeResource AppControlCornerRadius}"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="#C42B1C"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="#8E1F14"/>
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ═══════════════════════════════════════════════════════
+       MODE / GPU TILE (52 high perf, 44 high GPU, radius 6)
+       No outer Border: the Button itself owns the tile surface (P3).
+
+       This is the ONE performance-mode control: home and tuning both render it as
+       "icon above / label below" with the same selected state — #263B82F6 fill and a
+       #3B82F6 1 px outline, icon turning accent only while selected. The hex pairs are
+       repeated at the call sites because x:Bind function arguments cannot take a
+       StaticResource; keep them identical when adding a tile.
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="ModeTileStackStyle" TargetType="StackPanel">
+    <Setter Property="Spacing" Value="{StaticResource GapInline}"/>
+    <Setter Property="HorizontalAlignment" Value="Center"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+
+  <Style x:Key="ModeTileIconStyle" TargetType="FontIcon">
+    <Setter Property="FontFamily" Value="Segoe Fluent Icons"/>
+    <Setter Property="FontSize" Value="16"/>
+    <Setter Property="HorizontalAlignment" Value="Center"/>
+    <!-- Appearance brushes: dark / light / high-contrast sets live in the theme dictionaries
+         at the bottom of this file, so a light-theme user does not get the dark grey. -->
+    <Setter Property="Foreground" Value="{ThemeResource ModeTileIconBrush}"/>
+  </Style>
+
+  <Style x:Key="ModeTileButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="{ThemeResource TileIdleFillBrush}"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppOverlayCornerRadius}"/>
+    <Setter Property="Padding" Value="4,6"/>
+    <Setter Property="Height" Value="{StaticResource TileHeight}"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="VerticalAlignment" Value="Stretch"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid>
+            <Border x:Name="Bg" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}"/>
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgHoverBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.4"/>
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Selected variant of the tile: same template, accent tint + accent outline. A tile
+       swaps between this and ModeTileButtonStyle through Converters.BoolToStyle, so the
+       {ThemeResource} values resolve in the element's own theme scope (a function that
+       returned a brush would resolve against the Application theme and could pick the wrong
+       dictionary). -->
+  <Style x:Key="ModeTileButtonSelectedStyle" TargetType="Button" BasedOn="{StaticResource ModeTileButtonStyle}">
+    <Setter Property="Background" Value="{ThemeResource TileSelectedFillBrush}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource AccentBrush}"/>
+  </Style>
+
+  <!-- Tile label + icon variants (the icon is accent only while its tile is selected, the
+       label steps up from the muted idle brush to the primary text brush). -->
+  <Style x:Key="ModeTileLabelStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{ThemeResource ModeTileTextBrush}"/>
+    <Setter Property="TextAlignment" Value="Center"/>
+    <Setter Property="HorizontalAlignment" Value="Center"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="MaxLines" Value="1"/>
+    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+  </Style>
+
+  <Style x:Key="ModeTileLabelSelectedStyle" TargetType="TextBlock" BasedOn="{StaticResource ModeTileLabelStyle}">
+    <Setter Property="Foreground" Value="{ThemeResource ModeTileTextSelectedBrush}"/>
+  </Style>
+
+  <Style x:Key="ModeTileIconSelectedStyle" TargetType="FontIcon" BasedOn="{StaticResource ModeTileIconStyle}">
+    <Setter Property="Foreground" Value="{ThemeResource AccentBrush}"/>
+  </Style>
+
+  <!-- Chip (on/off): idle = neutral surface + secondary label, selected = accent fill +
+       on-accent label. Same two-style swap as the tiles. -->
+  <Style x:Key="ChipLabelStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="Foreground" Value="{ThemeResource ChipIdleTextBrush}"/>
+  </Style>
+
+  <Style x:Key="ChipLabelSelectedStyle" TargetType="TextBlock" BasedOn="{StaticResource ChipLabelStyle}">
+    <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+  </Style>
+  <!-- ═══════════════════════════════════════════════════════
+       ENTRY BUTTON (home shortcut row: 4 equal, 28 high, radius 4)
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="EntryButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+    <Setter Property="Padding" Value="4,0"/>
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid>
+            <Border x:Name="Bg" Background="Transparent" CornerRadius="{ThemeResource AppControlCornerRadius}"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}"/>
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgHoverBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Background" Value="{StaticResource SectionBgBrush}"/>
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ═══════════════════════════════════════════════════════
+       CHIP BUTTON (30 high, radius 4) — the on/off chip on the display row.
+       "Auto refresh" used to be blue text only: it read as a link and its state was
+       invisible (R2 item 5). A chip owns a surface, so ON = accent fill + white label and
+       OFF = neutral fill + secondary label. The template keeps TemplateBinding Background
+       so the state colour set at the call site survives hover (the default Button
+       template would repaint it with ButtonBackgroundPointerOver).
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="ChipButtonStyle" TargetType="Button">
+    <Setter Property="UseSystemFocusVisuals" Value="False"/>
+    <Setter Property="Height" Value="30"/>
+    <Setter Property="MinWidth" Value="44"/>
+    <Setter Property="Padding" Value="10,0"/>
+    <Setter Property="Background" Value="{ThemeResource ChipIdleFillBrush}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource ChipIdleBorderBrush}"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid>
+            <Border x:Name="Bg" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}"/>
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.85"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.7"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.4"/>
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="ChipButtonSelectedStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
+    <Setter Property="Background" Value="{ThemeResource AccentBrush}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource AccentBrush}"/>
+  </Style>
+  <!-- ═══════════════════════════════════════════════════════
+       DIALOG PRIMARY BUTTON (S6)
+       ContentDialog exposes a PrimaryButtonStyle property (verified in
+       Microsoft.UI.Xaml.winmd and in WinUI's generic.xaml ContentDialog template:
+       <Button x:Name="PrimaryButton" Style="{TemplateBinding PrimaryButtonStyle}"/>), so
+       Services\ContentDialogUserPromptService assigns one of these two directly. They are
+       looked up from Application.Current.Resources, which is why they must live in this
+       merged dictionary rather than inside App.xaml's inline resources.
+         PrimaryButtonStyle       — accent fill: normal confirmation / acknowledgement
+         DangerPrimaryButtonStyle — red fill: destructive prompt (GPU MUX switch / restart)
+       Same surface language as ChipButtonStyle: one solid fill, radius 4, opacity-only
+       hover/pressed. No border, so the dialog keeps a single border language.
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+    <Setter Property="Foreground" Value="#FFFFFFFF"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Padding" Value="8,0"/>
+    <Setter Property="MinHeight" Value="30"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid>
+            <Border x:Name="Bg" Background="{TemplateBinding Background}"
+                    CornerRadius="{TemplateBinding CornerRadius}"/>
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}"/>
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal"/>
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.88"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.72"/>
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <VisualState.Setters>
+                    <Setter Target="Bg.Opacity" Value="0.4"/>
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="DangerPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+    <Setter Property="Background" Value="#FFE5484D"/>
+    <Setter Property="Foreground" Value="#FFFFFFFF"/>
+  </Style>
+
+  <!-- ═══════════════════════════════════════════════════════
+       SECONDARY BUTTON (restore / reset next to a primary action)
+       Neutral surface, no second accent colour in the app. Shared by the tuning page's
+       restore buttons and the lighting page's Reset (R4 P1).
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="SecondaryButtonStyle" TargetType="Button">
+    <Setter Property="Height" Value="30"/>
+    <Setter Property="FontSize" Value="12"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppControlCornerRadius}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+
+  <!-- ═══════════════════════════════════════════════════════
+       CARD (only for "floating above the surface": page bodies)
+       THE card padding token. Pages must not override Padding on a card: the lighting
+       page had one card at 8 and every other card at 12, which is why its three text
+       left edges disagreed (R2 item 4).
+       ═══════════════════════════════════════════════════════ -->
+  <Style x:Key="CardStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="{ThemeResource AppOverlayCornerRadius}"/>
+    <!-- R4: the padding MUST be the literal 12. A {StaticResource GapGroup} here is an
+         x:Double, and a Double assigned to Border.Padding is silently converted to 0 by the
+         runtime — every card rendered with zero padding (labels glued to the card edge, the
+         brightness slider thumb halo clipped). Card content box is now 12..296 DIP. -->
+    <Setter Property="Padding" Value="12"/>
+    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+  </Style>
+
+  <!-- ═══════════════════════════════════════════════════════
+       ACCENT (R2 item 3): one accent for the whole app
+       ═══════════════════════════════════════════════════════
+       The WinUI default accent is the Windows personalization colour. On the review box
+       it resolved to a near-neutral grey, so a ToggleSwitch "on" and a Slider's filled
+       segment came out light-grey with a black knob — "on" and "off" were the same colour
+       and the pages disagreed with the blue selected tile. These overrides pin every
+       accent-derived brush to #3B82F6 (the Accent token above), which is also the colour
+       the tile outline uses. Keys are overridden for the Dark/Light/Default theme slots
+       so the settings page's theme switch cannot fall back to the system colour.
+       ═══════════════════════════════════════════════════════ -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Default">
+      <Color x:Key="SystemAccentColor">#3B82F6</Color>
+      <Color x:Key="SystemAccentColorLight1">#5B95F8</Color>
+      <Color x:Key="SystemAccentColorLight2">#7DAAF9</Color>
+      <Color x:Key="SystemAccentColorLight3">#A3C2FB</Color>
+      <Color x:Key="SystemAccentColorDark1">#2A6BD6</Color>
+      <Color x:Key="SystemAccentColorDark2">#2055AC</Color>
+      <Color x:Key="SystemAccentColorDark3">#17407F</Color>
+      <SolidColorBrush x:Key="AccentFillColorDefaultBrush"  Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E63B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#4D3B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorDisabledBrush"  Color="#33FFFFFF"/>
+      <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CCFFFFFF"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#66FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonBackground" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#33FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#66FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="#00000000"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOn" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed" Color="#F0F0F0"/>
+      <SolidColorBrush x:Key="SliderTrackValueFill" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillDisabled" Color="#33FFFFFF"/>
+      <SolidColorBrush x:Key="SliderThumbBackground" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ProgressBarForeground" Color="#3B82F6"/>
+      <!-- R5: no white "focus box" on a clicked ComboBox -->
+      <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushFocusedPressed" Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#33FFFFFF"/>
+      <!-- ── APPEARANCE BRUSHES (tiles / chips) — Dark set ────────────────────
+           Idle tile surface = white 8 % over the dark card; the icon/text greys are unchanged
+           from the pre-theme-page design, which is why the dark regression shot still matches. -->
+      <SolidColorBrush x:Key="TileIdleFillBrush"          Color="#14FFFFFF"/>
+      <SolidColorBrush x:Key="ModeTileIconBrush"          Color="#A8A8BC"/>
+      <SolidColorBrush x:Key="ModeTileTextBrush"          Color="#A8A8BC"/>
+      <SolidColorBrush x:Key="ModeTileTextSelectedBrush"  Color="#F2F2F2"/>
+      <SolidColorBrush x:Key="TileTextMutedBrush"         Color="#7C7C90"/>
+      <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="#00000000"/>
+      <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="#A8A8BC"/>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+      <Color x:Key="SystemAccentColor">#3B82F6</Color>
+      <Color x:Key="SystemAccentColorLight1">#5B95F8</Color>
+      <Color x:Key="SystemAccentColorLight2">#7DAAF9</Color>
+      <Color x:Key="SystemAccentColorLight3">#A3C2FB</Color>
+      <Color x:Key="SystemAccentColorDark1">#2A6BD6</Color>
+      <Color x:Key="SystemAccentColorDark2">#2055AC</Color>
+      <Color x:Key="SystemAccentColorDark3">#17407F</Color>
+      <SolidColorBrush x:Key="AccentFillColorDefaultBrush"  Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E63B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#4D3B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorDisabledBrush"  Color="#33FFFFFF"/>
+      <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CCFFFFFF"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#66FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonBackground" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#33FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#66FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="#00000000"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOn" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed" Color="#F0F0F0"/>
+      <SolidColorBrush x:Key="SliderTrackValueFill" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillDisabled" Color="#33FFFFFF"/>
+      <SolidColorBrush x:Key="SliderThumbBackground" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ProgressBarForeground" Color="#3B82F6"/>
+      <!-- R5: no white "focus box" on a clicked ComboBox -->
+      <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushFocusedPressed" Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#33FFFFFF"/>
+      <!-- ── APPEARANCE BRUSHES (tiles / chips) — Dark set ────────────────────
+           Idle tile surface = white 8 % over the dark card; the icon/text greys are unchanged
+           from the pre-theme-page design, which is why the dark regression shot still matches. -->
+      <SolidColorBrush x:Key="TileIdleFillBrush"          Color="#14FFFFFF"/>
+      <SolidColorBrush x:Key="ModeTileIconBrush"          Color="#A8A8BC"/>
+      <SolidColorBrush x:Key="ModeTileTextBrush"          Color="#A8A8BC"/>
+      <SolidColorBrush x:Key="ModeTileTextSelectedBrush"  Color="#F2F2F2"/>
+      <SolidColorBrush x:Key="TileTextMutedBrush"         Color="#7C7C90"/>
+      <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="#00000000"/>
+      <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="#A8A8BC"/>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <Color x:Key="SystemAccentColor">#3B82F6</Color>
+      <Color x:Key="SystemAccentColorLight1">#5B95F8</Color>
+      <Color x:Key="SystemAccentColorLight2">#7DAAF9</Color>
+      <Color x:Key="SystemAccentColorLight3">#A3C2FB</Color>
+      <Color x:Key="SystemAccentColorDark1">#2A6BD6</Color>
+      <Color x:Key="SystemAccentColorDark2">#2055AC</Color>
+      <Color x:Key="SystemAccentColorDark3">#17407F</Color>
+      <SolidColorBrush x:Key="AccentFillColorDefaultBrush"  Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E63B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorTertiaryBrush"  Color="#4D3B82F6"/>
+      <SolidColorBrush x:Key="AccentFillColorDisabledBrush"  Color="#33000000"/>
+      <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CCFFFFFF"/>
+      <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#66FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonBackground" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#33000000"/>
+      <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#66000000"/>
+      <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="#00000000"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOn" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="#FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed" Color="#F0F0F0"/>
+      <SolidColorBrush x:Key="SliderTrackValueFill" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="SliderTrackValueFillDisabled" Color="#33000000"/>
+      <SolidColorBrush x:Key="SliderThumbBackground" Color="#3B82F6"/>
+      <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#5B95F8"/>
+      <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#2A6BD6"/>
+      <SolidColorBrush x:Key="ProgressBarForeground" Color="#3B82F6"/>
+      <!-- R5: no white "focus box" on a clicked ComboBox -->
+      <SolidColorBrush x:Key="ComboBoxBorderBrushFocused" Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushFocusedPressed" Color="#26FFFFFF"/>
+      <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#33000000"/>
+      <!-- ── APPEARANCE BRUSHES (tiles / chips) — Light set ───────────────────
+           The dark greys (#A8A8BC) collapse on a near-white surface (~1.9:1), so the light
+           set carries a measured pair. Contrast is against the idle tile surface
+           (#0F000000 over the light card → ≈ #EDEDED):
+             ModeTileTextBrush #3F3F46 → 9.2:1   (body text target 4.5:1)
+             ModeTileIconBrush #5B5B66 → 5.4:1   (icon target 3:1)
+             ChipIdleTextBrush #3F3F46 → 9.2:1
+           Selected tile: blue outline + 15 % accent fill (#DCE9FD over white) with label
+           #1A1A1E → 12.4:1; the accent icon #3B82F6 on that fill → 3.2:1. -->
+      <SolidColorBrush x:Key="TileIdleFillBrush"          Color="#0F000000"/>
+      <SolidColorBrush x:Key="ModeTileIconBrush"          Color="#5B5B66"/>
+      <SolidColorBrush x:Key="ModeTileTextBrush"          Color="#3F3F46"/>
+      <SolidColorBrush x:Key="ModeTileTextSelectedBrush"  Color="#1A1A1E"/>
+      <SolidColorBrush x:Key="TileTextMutedBrush"         Color="#6B6B76"/>
+      <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="#0F000000"/>
+      <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="#33000000"/>
+      <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="#3F3F46"/>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="HighContrast">
+      <!-- ── APPEARANCE BRUSHES (tiles / chips) — High contrast set ───────────
+           High contrast is the OS override theme, so these follow the system colours instead
+           of the brand palette (the accent family above still applies where a control asks
+           for it). -->
+      <SolidColorBrush x:Key="TileIdleFillBrush"          Color="Transparent"/>
+      <SolidColorBrush x:Key="ModeTileIconBrush"          Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="ModeTileTextBrush"          Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="ModeTileTextSelectedBrush"  Color="{ThemeResource SystemColorHighlightTextColor}"/>
+      <SolidColorBrush x:Key="TileTextMutedBrush"         Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="ChipIdleFillBrush"          Color="Transparent"/>
+      <SolidColorBrush x:Key="ChipIdleBorderBrush"        Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <SolidColorBrush x:Key="ChipIdleTextBrush"          Color="{ThemeResource SystemColorWindowTextColor}"/>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+
+</ResourceDictionary>

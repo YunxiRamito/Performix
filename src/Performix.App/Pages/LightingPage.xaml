@@ -1,0 +1,840 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Lighting page (S5) — WinUI 3 port of app\Fork\PreySense.Frontend\Views\KeyboardWindow.xaml
+  (792 lines, the largest WPF window). Layout map from docs\WINUI3-MIGRATION.md §3.5:
+
+    1. detected lighting devices (HID, refreshable, selection swaps the editor below)
+    2. legacy Keyboard editor: brightness / lighting mode / static 4 zones / dynamic / software
+    3. legacy Logo editor: sync-with-keyboard / brightness / effect mode / presets / speed
+    4. OEM device editor: mode-key sync / mode / brightness / speed / random colours /
+       mode-power-mode colours / device colour / per-key keyboard layout / LED grid / key colour
+    5. footer: [Apply] + destructive [Reset] (separate style, confirmation dialog)
+
+  Mapping decisions that differ from WPF (documented in the S5 hand-off):
+    * ColorWheelControl (self-drawn, OnRender)  -> built-in ColorPicker (Ring spectrum).
+      WPF had five wheels; this page has five ColorPickers in the same five places.
+    * RgbKeyboardLayout (self-drawn)            -> Controls\KeyboardLayoutView (Canvas + Border).
+    * ListBox + UniformGrid                     -> ListView (device tabs) / ListView + ItemsWrapGrid
+                                                   (LED grid) / ItemsRepeater + UniformGridLayout
+                                                   (mode-power colours).
+    * LabeledTabSwitcher                        -> two RadioButtons with GroupName.
+    * VisibleWhen(x && y) MultiDataTriggers     -> code-behind visibility helper (WinUI has no
+                                                   MultiDataTrigger); single-condition panels keep
+                                                   a converter binding.
+
+  Every user-visible string goes through local:Loc.T(<English source>) -> LocalizationService
+  -> UiText table (red line 7). Unknown keys fall back to the English source, never to a raw
+  token. Text inside DataTemplates uses AutomationProperties.Name bound to the item data, not a
+  static AutomationId (duplicate ids would break UI Automation).
+-->
+<Page
+    x:Class="Predex.WinUI.Pages.LightingPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:Predex.WinUI"
+    xmlns:pages="using:Predex.WinUI.Pages"
+    xmlns:controls="using:Predex.WinUI.Controls"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
+    xmlns:rgb="using:PreySense.Rgb"
+    xmlns:vm="using:PreySense.Frontend.ViewModels"
+    mc:Ignorable="d"
+    Background="Transparent"
+    IsTabStop="True" UseSystemFocusVisuals="False">
+
+  <Page.Resources>
+    <!-- Destructive actions get their own style (rule: never style reset like apply). -->
+    <Style x:Key="DestructiveButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+      <Setter Property="Background" Value="#2EFF4040"/>
+      <Setter Property="BorderBrush" Value="#66FF4040"/>
+      <Setter Property="Foreground" Value="#FFFF8A8A"/>
+      <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+  </Page.Resources>
+
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="44"/>
+    </Grid.RowDefinitions>
+    <!-- X1: the page-level action bar is pinned below the scroll area (44 DIP, never cut by
+         the window edge). Its height is reported to the shell through the PageFooter name. -->
+    <ScrollViewer x:Name="PageScroll" Grid.Row="0" Padding="12,10,12,12"
+                  HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="8" MaxWidth="720" HorizontalAlignment="Stretch">
+
+        <!-- ═══ Header: one subtitle line, not a repeated page heading ═════════
+             The shell title bar already prints "灯光"; a 16 DIP heading under it spent
+             ~50 DIP of a 280 DIP window to say the same word twice (R2 item 3). -->
+        <Grid ColumnSpacing="8" Margin="0,0,0,4">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0"
+                     Text="{x:Bind local:Loc.T('Keyboard zones, logo and OEM device lighting.')}"
+                     Style="{StaticResource PageSubtitleStyle}" VerticalAlignment="Center"
+                     AutomationProperties.AutomationId="TxtLightingSubtitle"/>
+          <Border Grid.Column="1" CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
+                  Background="{StaticResource SectionBgBrush}"
+                  Visibility="{x:Bind local:Converters.BoolToVis(Vm.IsRefreshingLightingDevices), Mode=OneWay}">
+            <TextBlock Text="{x:Bind local:Loc.T('Refresh')}" Style="{StaticResource ChipTextStyle}"/>
+          </Border>
+        </Grid>
+
+        <!-- ═══ 1. Detected lighting devices (HID) ══════════════════════════
+             Card padding is the shared CardStyle token (12). This card used to override it
+             to 8, which is why its title, its device chip and its description line started
+             at three different x positions (R2 item 4). -->
+        <Border Style="{StaticResource CardStyle}">
+          <StackPanel Spacing="6">
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Detected lighting devices')}"
+                         Style="{StaticResource SectionTitleStyle}" TextTrimming="CharacterEllipsis"/>
+              <Button Grid.Column="1" Style="{StaticResource CaptionButtonStyle}"
+                      Click="RefreshDevices_Click"
+                      AutomationProperties.AutomationId="BtnRefreshLightingDevices"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Refresh')}"
+                      ToolTipService.ToolTip="{x:Bind local:Loc.T('Refresh')}">
+                <!-- E895 = Refresh (FluentGlyphs.Refresh in the WPF build) -->
+                <FontIcon Glyph="&#xE895;" FontFamily="Segoe Fluent Icons" FontSize="12"/>
+              </Button>
+            </Grid>
+
+            <!-- Horizontal device tabs. Selection is pushed to Vm.SelectedLightingDevice in
+                 code-behind (this is a data list, not a static enum selector). Each tab is a
+                 chip with its own surface so it reads as clickable, and the chip box starts
+                 at the card's content edge — the old inset text looked like a fourth,
+                 unrelated left margin. -->
+            <!-- L5: exactly one device = a plain text row (name 12 Primary above the 11 Muted
+                 description below); the chip list only appears when there is something to
+                 choose between. Visibility comes from the page (DeviceListVisibility). -->
+            <TextBlock Text="{x:Bind SingleDeviceName, Mode=OneWay}"
+                       FontSize="12" Foreground="{StaticResource TextPrimaryBrush}"
+                       Visibility="{x:Bind SingleDeviceVisibility, Mode=OneWay}"
+                       AutomationProperties.AutomationId="TxtSingleLightingDevice"/>
+            <ListView x:Name="DeviceList"
+                      ItemsSource="{x:Bind Vm.LightingDevices, Mode=OneWay}"
+                      Visibility="{x:Bind DeviceListVisibility, Mode=OneWay}"
+                      SelectionMode="Single"
+                      IsItemClickEnabled="False"
+                      MaxHeight="64"
+                      Padding="0"
+                      SelectionChanged="DeviceList_SelectionChanged"
+                      AutomationProperties.AutomationId="LstLightingDevices"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Detected lighting devices')}">
+              <ListView.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <ItemsStackPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+              </ListView.ItemsPanel>
+              <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                  <Setter Property="MinHeight" Value="28"/>
+                  <Setter Property="Padding" Value="8,4"/>
+                  <Setter Property="Margin" Value="0,0,6,0"/>
+                  <Setter Property="CornerRadius" Value="4"/>
+                  <Setter Property="Background" Value="{StaticResource SectionBgBrush}"/>
+                </Style>
+              </ListView.ItemContainerStyle>
+              <ListView.ItemTemplate>
+                <DataTemplate x:DataType="rgb:LightingDeviceInfo">
+                  <TextBlock Text="{x:Bind local:Loc.T(DisplayName)}"
+                             TextTrimming="CharacterEllipsis" MaxLines="1"
+                             VerticalAlignment="Center"
+                             AutomationProperties.Name="{x:Bind DisplayName}"/>
+                </DataTemplate>
+              </ListView.ItemTemplate>
+            </ListView>
+
+            <!-- Device description comes from Core ("Keyboard with 4 independent color
+                 zones"); it goes through Loc.T so the zh-CN table can translate it. -->
+            <TextBlock Text="{x:Bind local:Loc.T(Vm.LightingDeviceStatus), Mode=OneWay}"
+                       Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"/>
+            <ProgressBar IsIndeterminate="True" Height="2"
+                         Visibility="{x:Bind local:Converters.BoolToVis(Vm.IsRefreshingLightingDevices), Mode=OneWay}"/>
+          </StackPanel>
+        </Border>
+
+        <!-- ═══ Legacy Keyboard / Logo target tabs (no detected OEM device) ═ -->
+        <Grid ColumnSpacing="6"
+              Visibility="{x:Bind local:Converters.BoolToVis(Vm.ShowLegacyTargetTabs), Mode=OneWay}">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <RadioButton x:Name="KeyboardTabButton" GroupName="LightingTargetTabs"
+                       Click="KeyboardTab_Click" HorizontalAlignment="Stretch"
+                       AutomationProperties.AutomationId="TabLightingKeyboard">
+            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+              <!-- E92E = Keyboard -->
+              <FontIcon Glyph="&#xE92E;" FontFamily="Segoe Fluent Icons" FontSize="12"/>
+              <TextBlock Text="{x:Bind local:Loc.T('Keyboard')}"/>
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="LogoTabButton" Grid.Column="1" GroupName="LightingTargetTabs"
+                       Click="LogoTab_Click" HorizontalAlignment="Stretch"
+                       AutomationProperties.AutomationId="TabLightingLogo">
+            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+              <!-- E9A9 = Lighting / brightness family glyph used for the logo target -->
+              <FontIcon Glyph="&#xE9A9;" FontFamily="Segoe Fluent Icons" FontSize="12"/>
+              <TextBlock Text="{x:Bind local:Loc.T('Logo')}"/>
+            </StackPanel>
+          </RadioButton>
+        </Grid>
+
+        <!-- ═══ EC keyboard backlight timeout (shared by both editors) ══════ -->
+        <Border Style="{StaticResource CardStyle}"
+                Visibility="{x:Bind local:Converters.BoolToVis(Vm.ShowBacklightTimeout), Mode=OneWay}">
+          <StackPanel Spacing="4">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Backlight Timeout')}"
+                         Style="{StaticResource SectionTitleStyle}"/>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="{x:Bind Vm.KbdTimeoutSeconds, Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"
+                           AutomationProperties.AutomationId="TxtKbdTimeoutDisplay"/>
+                <TextBlock Text="{x:Bind local:Loc.T('seconds')}" Style="{StaticResource UnitTextStyle}"/>
+              </StackPanel>
+            </Grid>
+            <Slider x:Name="TimeoutSlider" Minimum="0" Maximum="120" StepFrequency="10" TickFrequency="10"
+                    TickPlacement="None" ValueChanged="TimeoutSlider_ValueChanged"
+                    AutomationProperties.AutomationId="SldKbdBacklightTimeout"
+                    AutomationProperties.Name="{x:Bind local:Loc.T('Backlight Timeout')}"/>
+          </StackPanel>
+        </Border>
+
+        <!-- ═══ 2. Legacy keyboard editor: 4 zones + static / dynamic / software ═ -->
+        <StackPanel Spacing="8" x:Name="LegacyKeyboardSection"
+                    Visibility="{x:Bind local:Converters.BoolToVis(Vm.IsLegacyKeyboardEditorVisible), Mode=OneWay}">
+
+          <!-- Brightness -->
+          <Border Style="{StaticResource CardStyle}">
+            <StackPanel Spacing="4">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Brightness')}" Style="{StaticResource SectionTitleStyle}"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind pages:LightingFormat.Percent(Vm.RgbBrightness), Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"
+                           AutomationProperties.AutomationId="TxtRgbBrightness"/>
+              </Grid>
+              <!-- 0..100 % in 25 % steps = the four EC brightness levels (0/25/50/75) plus full. -->
+              <Slider x:Name="BrightnessSlider" Minimum="0" Maximum="100" StepFrequency="25"
+                      TickFrequency="25" TickPlacement="None"
+                      ValueChanged="BrightnessSlider_ValueChanged"
+                      AutomationProperties.AutomationId="SldRgbBrightness"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Brightness')}"/>
+
+            </StackPanel>
+          </Border>
+
+          <!-- Lighting mode: Static / Dynamic / Software -->
+          <Border Style="{StaticResource CardStyle}">
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Lighting Mode')}" Style="{StaticResource SectionTitleStyle}"/>
+              <ComboBox x:Name="LightingModeCombo" Grid.Column="1" MinWidth="140" Height="30"
+                        HorizontalAlignment="Right" SelectionChanged="LightingModeCombo_SelectionChanged"
+                        AutomationProperties.AutomationId="CmbLightingMode"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Lighting Mode')}">
+                <ComboBoxItem Content="{x:Bind local:Loc.T('Static')}"/>
+                <ComboBoxItem Content="{x:Bind local:Loc.T('Dynamic')}"/>
+                <ComboBoxItem Content="{x:Bind local:Loc.T('Software')}"/>
+              </ComboBox>
+            </Grid>
+          </Border>
+
+          <!-- Static: sync-all, presets, 4 zone buttons, colour picker + hex -->
+          <Border Style="{StaticResource CardStyle}" x:Name="PanelStaticControls">
+            <StackPanel Spacing="6">
+              <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Sync All Zones')}" Style="{StaticResource SectionTitleStyle}"/>
+                <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Vm.IsRgbSyncZonesEnabled, Mode=TwoWay}"
+                              OnContent="" OffContent="" MinWidth="0"
+                              AutomationProperties.AutomationId="ChkSyncAllZones"
+                              AutomationProperties.Name="{x:Bind local:Loc.T('Sync All Zones')}"/>
+              </Grid>
+
+              <Grid x:Name="StaticPresetRow" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Preset Themes')}" Style="{StaticResource SectionTitleStyle}"/>
+                <ComboBox x:Name="StaticPresetCombo" Grid.Column="1" MinWidth="150" Height="30"
+                          MaxDropDownHeight="360" HorizontalAlignment="Right"
+                          ItemsSource="{x:Bind ZonePresetOptions}"
+                          DisplayMemberPath="DisplayName"
+                          SelectionChanged="StaticPresetCombo_SelectionChanged"
+                          AutomationProperties.AutomationId="CmbPresetStatic"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Preset Themes')}"/>
+              </Grid>
+
+              <!-- 4 zones. Selected zone gets an accent outline; colour is edited below. -->
+              <Grid x:Name="ZoneButtonRow" ColumnSpacing="4">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="Zone1Button" Grid.Column="0" Content="{x:Bind local:Loc.T('Zone 1')}"
+                        Height="32" HorizontalAlignment="Stretch" CornerRadius="4" Padding="4,0"
+                        Background="{x:Bind pages:LightingFormat.ZoneBackground(Vm.SelectedRgbZone, 1, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        Foreground="{x:Bind pages:LightingFormat.ZoneForeground(Vm.SelectedRgbZone, 1, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        BorderThickness="0" Click="Zone1_Click"
+                        AutomationProperties.AutomationId="BtnZone1"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Zone 1')}"/>
+                <Button x:Name="Zone2Button" Grid.Column="1" Content="{x:Bind local:Loc.T('Zone 2')}"
+                        Height="32" HorizontalAlignment="Stretch" CornerRadius="4" Padding="4,0"
+                        Background="{x:Bind pages:LightingFormat.ZoneBackground(Vm.SelectedRgbZone, 2, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        Foreground="{x:Bind pages:LightingFormat.ZoneForeground(Vm.SelectedRgbZone, 2, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        BorderThickness="0" Click="Zone2_Click"
+                        AutomationProperties.AutomationId="BtnZone2"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Zone 2')}"/>
+                <Button x:Name="Zone3Button" Grid.Column="2" Content="{x:Bind local:Loc.T('Zone 3')}"
+                        Height="32" HorizontalAlignment="Stretch" CornerRadius="4" Padding="4,0"
+                        Background="{x:Bind pages:LightingFormat.ZoneBackground(Vm.SelectedRgbZone, 3, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        Foreground="{x:Bind pages:LightingFormat.ZoneForeground(Vm.SelectedRgbZone, 3, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        BorderThickness="0" Click="Zone3_Click"
+                        AutomationProperties.AutomationId="BtnZone3"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Zone 3')}"/>
+                <Button x:Name="Zone4Button" Grid.Column="3" Content="{x:Bind local:Loc.T('Zone 4')}"
+                        Height="32" HorizontalAlignment="Stretch" CornerRadius="4" Padding="4,0"
+                        Background="{x:Bind pages:LightingFormat.ZoneBackground(Vm.SelectedRgbZone, 4, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        Foreground="{x:Bind pages:LightingFormat.ZoneForeground(Vm.SelectedRgbZone, 4, Vm.IsRgbSyncZonesEnabled), Mode=OneWay}"
+                        BorderThickness="0" Click="Zone4_Click"
+                        AutomationProperties.AutomationId="BtnZone4"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Zone 4')}"/>
+              </Grid>
+
+              <!-- R5: the ColorPicker template pins its inner ColorSpectrum to MinWidth/MinHeight
+                   256, so the 160 DIP outer size clipped the ring to a quarter circle. The
+                   primitive has no template and no minimum: 160 DIP renders the whole ring and
+                   the selection can be dragged to the rim. Colour <-> hex stays on the VM. -->
+              <primitives:ColorSpectrum x:Name="ZoneColorPicker"
+                                        Width="160" Height="160"
+                                        Shape="Ring"
+                                        HorizontalAlignment="Left"
+                                        ColorChanged="ZoneColorPicker_ColorChanged"
+                                        AutomationProperties.AutomationId="CtlZoneColorPicker"
+                                        AutomationProperties.Name="{x:Bind local:Loc.T('Zone color')}"/>
+
+              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                <TextBlock Text="{x:Bind local:Loc.T('Color')}" Style="{StaticResource SectionTitleStyle}"/>
+                <Border Width="20" Height="20" CornerRadius="4" BorderThickness="1"
+                        BorderBrush="{StaticResource BorderStrongBrush}"
+                        Background="{x:Bind pages:LightingFormat.HexToBrush(Vm.SelectedHexColor), Mode=OneWay}"/>
+                <TextBox x:Name="ZoneHexBox" Width="96" Height="30" MaxLength="7"
+                         FontFamily="Consolas, Segoe UI" FontSize="12" FontWeight="SemiBold"
+                         TextAlignment="Center" TextChanged="ZoneHexBox_TextChanged"
+                         LostFocus="ZoneHexBox_LostFocus"
+                         AutomationProperties.AutomationId="TxtHexColorInput"
+                         AutomationProperties.Name="{x:Bind local:Loc.T('Color')}"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <!-- Dynamic hardware effects -->
+          <Border Style="{StaticResource CardStyle}" x:Name="PanelDynamicControls" Visibility="Collapsed">
+            <StackPanel Spacing="6">
+              <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Dynamic Effect')}" Style="{StaticResource SectionTitleStyle}"/>
+                <ComboBox x:Name="DynamicEffectCombo" Grid.Column="1" MinWidth="150" Height="30"
+                          MaxDropDownHeight="360" HorizontalAlignment="Right"
+                          ItemsSource="{x:Bind HardwareEffectOptions}"
+                          DisplayMemberPath="DisplayName"
+                          SelectionChanged="DynamicEffectCombo_SelectionChanged"
+                          AutomationProperties.AutomationId="CmbDynamicSelect"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Dynamic Effect')}"/>
+              </Grid>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Animation Speed')}" Style="{StaticResource SectionTitleStyle}"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind pages:LightingFormat.Text(Vm.KeyboardAnimationSpeedLevel), Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"/>
+              </Grid>
+              <Slider x:Name="HardwareSpeedSlider" Minimum="1" Maximum="10" StepFrequency="1"
+                      TickFrequency="1" TickPlacement="None"
+                      ValueChanged="HardwareSpeedSlider_ValueChanged"
+                      AutomationProperties.AutomationId="SldHardwareAnimationSpeed"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Animation Speed')}"/>
+            </StackPanel>
+          </Border>
+
+          <!-- Software effects (the lighting engine drives these) -->
+          <Border Style="{StaticResource CardStyle}" x:Name="PanelSoftwareControls" Visibility="Collapsed">
+            <StackPanel Spacing="6">
+              <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Software Effect')}" Style="{StaticResource SectionTitleStyle}"/>
+                <ComboBox x:Name="SoftwareEffectCombo" Grid.Column="1" MinWidth="150" Height="30"
+                          MaxDropDownHeight="360" HorizontalAlignment="Right"
+                          ItemsSource="{x:Bind SoftwareEffectOptions}"
+                          DisplayMemberPath="DisplayName"
+                          SelectionChanged="SoftwareEffectCombo_SelectionChanged"
+                          AutomationProperties.AutomationId="CmbSoftwareSelect"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Software Effect')}"/>
+              </Grid>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Animation Speed')}" Style="{StaticResource SectionTitleStyle}"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind pages:LightingFormat.Percent(Vm.RgbSpeed), Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"/>
+              </Grid>
+              <Slider x:Name="SoftwareSpeedSlider" Minimum="0" Maximum="100" StepFrequency="1"
+                      TickFrequency="10" ValueChanged="SoftwareSpeedSlider_ValueChanged"
+                      AutomationProperties.AutomationId="SldSoftwareAnimationSpeed"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Animation Speed')}"/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- ═══ 3. Legacy logo (cover) editor ═══════════════════════════════ -->
+        <StackPanel Spacing="8" x:Name="LegacyLogoSection"
+                    Visibility="{x:Bind local:Converters.BoolToVis(Vm.IsLegacyCoverEditorVisible), Mode=OneWay}">
+
+          <Border Style="{StaticResource CardStyle}">
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Sync With Keyboard')}" Style="{StaticResource SectionTitleStyle}"/>
+              <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Vm.IsCoverSyncWithKeyboard, Mode=TwoWay}"
+                            OnContent="" OffContent="" MinWidth="0"
+                            AutomationProperties.AutomationId="ChkSyncWithKeyboard"
+                            AutomationProperties.Name="{x:Bind local:Loc.T('Sync With Keyboard')}"/>
+            </Grid>
+          </Border>
+
+          <Border Style="{StaticResource CardStyle}" x:Name="CoverBrightnessCard">
+            <StackPanel Spacing="4">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Brightness')}" Style="{StaticResource SectionTitleStyle}"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind pages:LightingFormat.Percent(Vm.CoverBrightness), Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"/>
+              </Grid>
+              <Slider x:Name="CoverBrightnessSlider" Minimum="0" Maximum="100" StepFrequency="25"
+                      TickFrequency="25" TickPlacement="None"
+                      ValueChanged="CoverBrightnessSlider_ValueChanged"
+                      AutomationProperties.AutomationId="SldCoverBrightness"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Brightness')}"/>
+            </StackPanel>
+          </Border>
+
+          <Border Style="{StaticResource CardStyle}" x:Name="CoverEffectModeCard">
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Effect Mode')}" Style="{StaticResource SectionTitleStyle}"/>
+              <ComboBox x:Name="CoverModeCombo" Grid.Column="1" MinWidth="130" Height="30"
+                        HorizontalAlignment="Right" ItemsSource="{x:Bind CoverModeOptions}"
+                        DisplayMemberPath="DisplayName"
+                        SelectionChanged="CoverModeCombo_SelectionChanged"
+                        AutomationProperties.AutomationId="CmbCoverMode"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Effect Mode')}"/>
+            </Grid>
+          </Border>
+
+          <Border Style="{StaticResource CardStyle}" x:Name="CoverStaticPanel">
+            <StackPanel Spacing="6">
+              <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Preset Themes')}" Style="{StaticResource SectionTitleStyle}"/>
+                <ComboBox x:Name="CoverPresetCombo" Grid.Column="1" MinWidth="150" Height="30"
+                          MaxDropDownHeight="360" HorizontalAlignment="Right"
+                          ItemsSource="{x:Bind CoverPresetOptions}"
+                          DisplayMemberPath="DisplayName"
+                          SelectionChanged="CoverPresetCombo_SelectionChanged"
+                          AutomationProperties.AutomationId="CmbCoverPresets"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Preset Themes')}"/>
+              </Grid>
+
+                            <!-- R5: the ColorPicker template pins its inner ColorSpectrum to MinWidth/MinHeight
+                   256, so the 160 DIP outer size clipped the ring to a quarter circle. The
+                   primitive has no template and no minimum: 160 DIP renders the whole ring and
+                   the selection can be dragged to the rim. Colour <-> hex stays on the VM. -->
+              <primitives:ColorSpectrum x:Name="CoverColorPicker"
+                                        Width="160" Height="160"
+                                        Shape="Ring"
+                                        HorizontalAlignment="Left"
+                                        ColorChanged="CoverColorPicker_ColorChanged"
+                                        AutomationProperties.AutomationId="CtlCoverColorPicker"
+                                        AutomationProperties.Name="{x:Bind local:Loc.T('Logo')}"/>
+
+              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                <TextBlock Text="{x:Bind local:Loc.T('Color')}" Style="{StaticResource SectionTitleStyle}"/>
+                <Border Width="20" Height="20" CornerRadius="4" BorderThickness="1"
+                        BorderBrush="{StaticResource BorderStrongBrush}"
+                        Background="{x:Bind pages:LightingFormat.HexToBrush(Vm.CoverHexColor), Mode=OneWay}"/>
+                <TextBox x:Name="CoverHexBox" Width="96" Height="30" MaxLength="7"
+                         FontFamily="Consolas, Segoe UI" FontSize="12" FontWeight="SemiBold"
+                         TextAlignment="Center" TextChanged="CoverHexBox_TextChanged"
+                         LostFocus="CoverHexBox_LostFocus"
+                         AutomationProperties.AutomationId="TxtCoverHexColorInput"
+                         AutomationProperties.Name="{x:Bind local:Loc.T('Color')}"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <Border Style="{StaticResource CardStyle}" x:Name="CoverSpeedCard">
+            <StackPanel Spacing="4">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Animation Speed')}" Style="{StaticResource SectionTitleStyle}"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind pages:LightingFormat.Text(Vm.LogoAnimationSpeedLevel), Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"/>
+              </Grid>
+              <Slider x:Name="CoverSpeedSlider" Minimum="1" Maximum="5" StepFrequency="1"
+                      TickFrequency="1" TickPlacement="None"
+                      ValueChanged="CoverSpeedSlider_ValueChanged"
+                      AutomationProperties.AutomationId="SldCoverAnimationSpeed"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Animation Speed')}"/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- ═══ 4. OEM device editor (mode key, light bars, per-key keyboard) ═ -->
+        <StackPanel Spacing="8" x:Name="DeviceEditorSection"
+                    Visibility="{x:Bind local:Converters.BoolToVis(Vm.IsDeviceLightingEditorVisible), Mode=OneWay}">
+
+          <!-- Sync with keyboard (mode key only) -->
+          <Border Style="{StaticResource CardStyle}"
+                  Visibility="{x:Bind local:Converters.BoolToVis(Vm.IsModeKeyLightingDevice), Mode=OneWay}">
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Sync With Keyboard')}" Style="{StaticResource SectionTitleStyle}"/>
+              <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Vm.IsModeKeySyncWithKeyboard, Mode=TwoWay}"
+                            OnContent="" OffContent="" MinWidth="0"
+                            AutomationProperties.AutomationId="ChkModeKeySync"
+                            AutomationProperties.Name="{x:Bind local:Loc.T('Sync With Keyboard')}"/>
+            </Grid>
+          </Border>
+
+          <!-- Device lighting mode (EC values from the detected device) -->
+          <Border Style="{StaticResource CardStyle}" x:Name="DeviceModeCard">
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{x:Bind local:Loc.T('Lighting Mode')}" Style="{StaticResource SectionTitleStyle}"/>
+              <ComboBox x:Name="DeviceModeCombo" Grid.Column="1" MinWidth="150" Height="30"
+                        HorizontalAlignment="Right" ItemsSource="{x:Bind Vm.LightingDeviceModes, Mode=OneWay}"
+                        SelectionChanged="DeviceModeCombo_SelectionChanged"
+                        AutomationProperties.AutomationId="CmbDeviceLightingMode"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('Lighting Mode')}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="rgb:LightingModeInfo">
+                    <TextBlock Text="{x:Bind local:Loc.T(Name)}" TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </Grid>
+          </Border>
+
+          <!-- Device brightness -->
+          <Border Style="{StaticResource CardStyle}" x:Name="DeviceBrightnessCard">
+            <StackPanel Spacing="4">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Brightness')}" Style="{StaticResource SectionTitleStyle}"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind pages:LightingFormat.Percent(Vm.DeviceLightingBrightness), Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"/>
+              </Grid>
+              <Slider x:Name="DeviceBrightnessSlider" Minimum="0" Maximum="100" StepFrequency="1"
+                      TickFrequency="25" ValueChanged="DeviceBrightnessSlider_ValueChanged"
+                      AutomationProperties.AutomationId="SldDeviceBrightness"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Brightness')}"/>
+            </StackPanel>
+          </Border>
+
+          <!-- Device animation speed: never hidden, greyed out with a tooltip when the
+               selected hardware mode has no speed parameter (rule: don't hide capabilities). -->
+          <Border Style="{StaticResource CardStyle}" x:Name="DeviceSpeedCard"
+                  ToolTipService.ToolTip="{x:Bind pages:LightingFormat.DisabledTip(Vm.HasDeviceLightingSpeed, 'This lighting mode has no animation speed.'), Mode=OneWay}">
+            <StackPanel Spacing="4">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Animation Speed')}" Style="{StaticResource SectionTitleStyle}"/>
+                <TextBlock Grid.Column="1"
+                           Text="{x:Bind pages:LightingFormat.Text(Vm.DeviceLightingSpeedLevel), Mode=OneWay}"
+                           Style="{StaticResource CardValueTextStyle}"/>
+              </Grid>
+              <Slider x:Name="DeviceSpeedSlider" Minimum="1" Maximum="9" StepFrequency="1"
+                      TickFrequency="1" TickPlacement="None"
+                      IsEnabled="{x:Bind Vm.HasDeviceLightingSpeed, Mode=OneWay}"
+                      ValueChanged="DeviceSpeedSlider_ValueChanged"
+                      AutomationProperties.AutomationId="SldDeviceAnimationSpeed"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Animation Speed')}"/>
+            </StackPanel>
+          </Border>
+
+          <!-- Colours: mode/power-mode slots, uniform device colour, per-key layout, LED grid -->
+          <Border Style="{StaticResource CardStyle}">
+            <StackPanel Spacing="6">
+
+              <!-- Random colours (hardware mode capability) -->
+              <Grid ColumnSpacing="8"
+                    ToolTipService.ToolTip="{x:Bind pages:LightingFormat.DisabledTip(Vm.HasDeviceLightingRandomColors, 'This lighting mode does not randomise colours.'), Mode=OneWay}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind local:Loc.T('Random colors')}" Style="{StaticResource SectionTitleStyle}"/>
+                <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Vm.DeviceLightingRandomColors, Mode=TwoWay}"
+                              IsEnabled="{x:Bind Vm.HasDeviceLightingRandomColors, Mode=OneWay}"
+                              OnContent="" OffContent="" MinWidth="0"
+                              AutomationProperties.AutomationId="ChkRandomColors"
+                              AutomationProperties.Name="{x:Bind local:Loc.T('Random colors')}"/>
+              </Grid>
+
+              <!-- Mode key: one colour slot per performance mode (WPF Visual = 5 columns) -->
+              <StackPanel Spacing="6" x:Name="ModePowerColorPanel" Visibility="Collapsed">
+                <TextBlock Text="{x:Bind local:Loc.T('Mode')}" Style="{StaticResource SectionTitleStyle}"/>
+                <ItemsRepeater ItemsSource="{x:Bind Vm.ModePowerModeColorEditors, Mode=OneWay}">
+                  <ItemsRepeater.Layout>
+                    <UniformGridLayout MinItemWidth="48" MinColumnSpacing="6" MinRowSpacing="6"
+                                       ItemsStretch="Fill"/>
+                  </ItemsRepeater.Layout>
+                  <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ModePowerModeColorEditor">
+                      <Button Content="{x:Bind Name}" Height="32" HorizontalAlignment="Stretch"
+                              CornerRadius="4" Padding="4,0" Click="ModeColorButton_Click"
+                              Background="{x:Bind pages:LightingFormat.HexToBrush(ColorHex), Mode=OneWay}"
+                              Foreground="{x:Bind pages:LightingFormat.HexToBrush(ForegroundHex), Mode=OneWay}"
+                              AutomationProperties.Name="{x:Bind Name}"/>
+                    </DataTemplate>
+                  </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+
+                              <!-- R5: the ColorPicker template pins its inner ColorSpectrum to MinWidth/MinHeight
+                   256, so the 160 DIP outer size clipped the ring to a quarter circle. The
+                   primitive has no template and no minimum: 160 DIP renders the whole ring and
+                   the selection can be dragged to the rim. Colour <-> hex stays on the VM. -->
+              <primitives:ColorSpectrum x:Name="ModeColorPicker"
+                                        Width="160" Height="160"
+                                        Shape="Ring"
+                                        HorizontalAlignment="Left"
+                                        ColorChanged="ModeColorPicker_ColorChanged"
+                                        AutomationProperties.AutomationId="CtlModeKeyColorPicker"
+                                        AutomationProperties.Name="{x:Bind local:Loc.T('Mode')}"/>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                  <TextBlock Text="{x:Bind local:Loc.T('Color')}" Style="{StaticResource SectionTitleStyle}"/>
+                  <Border Width="20" Height="20" CornerRadius="4" BorderThickness="1"
+                          BorderBrush="{StaticResource BorderStrongBrush}"
+                          Background="{x:Bind pages:LightingFormat.HexToBrush(Vm.SelectedModePowerModeColor.ColorHex), Mode=OneWay}"/>
+                  <TextBox x:Name="ModeHexBox" Width="96" Height="30" MaxLength="7"
+                           FontFamily="Consolas, Segoe UI" FontSize="12" FontWeight="SemiBold"
+                           TextAlignment="Center" TextChanged="ModeHexBox_TextChanged"
+                           IsEnabled="{x:Bind Vm.HasSelectedModePowerModeColor, Mode=OneWay}"
+                           AutomationProperties.AutomationId="TxtModeKeyColorHex"
+                           AutomationProperties.Name="{x:Bind local:Loc.T('Color')}"/>
+                </StackPanel>
+              </StackPanel>
+
+              <!-- Uniform device colour (Static / Breathing hardware modes) -->
+              <StackPanel Spacing="6" x:Name="DeviceColorPanel" Visibility="Collapsed">
+                              <!-- R5: the ColorPicker template pins its inner ColorSpectrum to MinWidth/MinHeight
+                   256, so the 160 DIP outer size clipped the ring to a quarter circle. The
+                   primitive has no template and no minimum: 160 DIP renders the whole ring and
+                   the selection can be dragged to the rim. Colour <-> hex stays on the VM. -->
+              <primitives:ColorSpectrum x:Name="DeviceColorPicker"
+                                        Width="160" Height="160"
+                                        Shape="Ring"
+                                        HorizontalAlignment="Left"
+                                        ColorChanged="DeviceColorPicker_ColorChanged"
+                                        AutomationProperties.AutomationId="CtlDeviceColorPicker"
+                                        AutomationProperties.Name="{x:Bind local:Loc.T('All LEDs color')}"/>
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                  <TextBlock Text="{x:Bind local:Loc.T('Color')}" Style="{StaticResource SectionTitleStyle}"/>
+                  <Border Width="20" Height="20" CornerRadius="4" BorderThickness="1"
+                          BorderBrush="{StaticResource BorderStrongBrush}"
+                          Background="{x:Bind pages:LightingFormat.HexToBrush(Vm.DeviceLightingColorHex), Mode=OneWay}"/>
+                  <TextBox x:Name="DeviceHexBox" Width="96" Height="30" MaxLength="7"
+                           FontFamily="Consolas, Segoe UI" FontSize="12" FontWeight="SemiBold"
+                           TextAlignment="Center" TextChanged="DeviceHexBox_TextChanged"
+                           AutomationProperties.AutomationId="TxtDeviceColorHex"
+                           AutomationProperties.Name="{x:Bind local:Loc.T('Color')}"/>
+                </StackPanel>
+              </StackPanel>
+
+              <!-- Per-key keyboard layout (replaces the self-drawn WPF RgbKeyboardLayout) -->
+              <StackPanel Spacing="4" x:Name="KeyboardLayoutPanel" Visibility="Collapsed">
+                <TextBlock Text="{x:Bind local:Loc.T('Individual key / LED colors (Direct mode)')}"
+                           Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"/>
+                <Viewbox Stretch="Uniform" StretchDirection="DownOnly" MaxHeight="280"
+                         HorizontalAlignment="Stretch">
+                  <controls:KeyboardLayoutView x:Name="KeyboardLayout"
+                      KeysSource="{x:Bind Vm.LightingLedEditors, Mode=OneWay}"
+                      CommonColorHex="{x:Bind Vm.DeviceLightingColorHex, Mode=OneWay}"
+                      UseIndividualColors="{x:Bind Vm.DeviceLightingIndividualColors, Mode=TwoWay}"
+                      SelectedKey="{x:Bind Vm.SelectedLightingKey, Mode=TwoWay}"
+                      SelectedKeys="{x:Bind Vm.SelectedLightingKeys, Mode=OneWay}"
+                      KeyBackgroundBrush="{StaticResource CardBackgroundFillColorDefaultBrush}"
+                      KeyForegroundBrush="{StaticResource TextPrimaryBrush}"
+                      KeyAccentBrush="{StaticResource AccentBrush}"
+                      KeyBorderBrush="{StaticResource BorderStrongBrush}"
+                      AutomationProperties.AutomationId="CtlRgbKeyboardLayout"/>
+                </Viewbox>
+              </StackPanel>
+
+              <!-- LED grid for devices whose LEDs have no physical keyboard position -->
+              <ListView x:Name="LedList"
+                        ItemsSource="{x:Bind Vm.LightingLedEditors, Mode=OneWay}"
+                        SelectionMode="Single" IsItemClickEnabled="False"
+                        Padding="0" HorizontalAlignment="Stretch"
+                        SelectionChanged="LedList_SelectionChanged"
+                        AutomationProperties.AutomationId="LstIndividualLeds"
+                        AutomationProperties.Name="{x:Bind local:Loc.T('All LEDs color')}">
+                <ListView.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="4"/>
+                  </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
+                <ListView.ItemContainerStyle>
+                  <Style TargetType="ListViewItem">
+                    <Setter Property="MinWidth" Value="0"/>
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="Margin" Value="2"/>
+                    <Setter Property="MinHeight" Value="32"/>
+                    <Setter Property="CornerRadius" Value="4"/>
+                  </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                  <DataTemplate x:DataType="vm:LightingLedEditor">
+                    <Border Height="32" CornerRadius="4" Padding="4,0"
+                            Background="{x:Bind pages:LightingFormat.HexToBrush(ColorHex), Mode=OneWay}">
+                      <TextBlock Text="{x:Bind Name}" FontSize="11" FontWeight="SemiBold"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 TextTrimming="CharacterEllipsis" MaxLines="1"
+                                 Foreground="{x:Bind pages:LightingFormat.HexToBrush(ForegroundHex), Mode=OneWay}"
+                                 AutomationProperties.Name="{x:Bind Name}"/>
+                    </Border>
+                  </DataTemplate>
+                </ListView.ItemTemplate>
+              </ListView>
+
+              <!-- Single key / LED colour editor -->
+              <StackPanel Spacing="4" x:Name="IndividualKeyPanel" Visibility="Collapsed">
+                              <!-- R5: the ColorPicker template pins its inner ColorSpectrum to MinWidth/MinHeight
+                   256, so the 160 DIP outer size clipped the ring to a quarter circle. The
+                   primitive has no template and no minimum: 160 DIP renders the whole ring and
+                   the selection can be dragged to the rim. Colour <-> hex stays on the VM. -->
+              <primitives:ColorSpectrum x:Name="KeyColorPicker"
+                                        Width="160" Height="160"
+                                        Shape="Ring"
+                                        HorizontalAlignment="Left"
+                                        ColorChanged="KeyColorPicker_ColorChanged"
+                                        AutomationProperties.AutomationId="CtlIndividualLedColorPicker"
+                                        AutomationProperties.Name="{x:Bind local:Loc.T('Individual key / LED colors (Direct mode)')}"/>
+                <ContentControl IsEnabled="{x:Bind Vm.HasSelectedLightingKey, Mode=OneWay}"
+                                HorizontalContentAlignment="Center"
+                                HorizontalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                  <TextBlock Text="{x:Bind local:Loc.T('Color')}" Style="{StaticResource SectionTitleStyle}"/>
+                  <TextBox x:Name="KeyHexBox" Width="96" Height="30" MaxLength="7"
+                           FontFamily="Consolas, Segoe UI" FontSize="12" FontWeight="SemiBold"
+                           TextAlignment="Center" TextChanged="KeyHexBox_TextChanged"
+                           AutomationProperties.AutomationId="TxtIndividualLedColorHex"
+                           AutomationProperties.Name="{x:Bind local:Loc.T('Color')}"/>
+                </StackPanel>
+                </ContentControl>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+
+        <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextStyle}"
+                   TextWrapping="Wrap" Visibility="Collapsed"
+                   AutomationProperties.AutomationId="TxtLightingStatus"/>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border x:Name="PageFooter" Grid.Row="1" BorderThickness="0,1,0,0"
+            BorderBrush="{StaticResource BorderSubtleBrush}">
+      <!-- P1: same footer anatomy as the Fans page — two equal halves, accent Apply, neutral
+           secondary Reset. The red destructive style was too loud for a routine reset; the
+           confirmation dialog still guards the action. -->
+      <Grid ColumnSpacing="8" Margin="12,6,12,6">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button Grid.Column="0" Content="{x:Bind local:Loc.T('Apply')}"
+                Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch"
+                Height="32" Click="Apply_Click"
+                AutomationProperties.AutomationId="BtnApplyLighting"
+                ToolTipService.ToolTip="{x:Bind local:Loc.T('Apply')}"/>
+        <Button Grid.Column="1" Content="{x:Bind local:Loc.T('Reset')}"
+                Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Stretch"
+                Height="32" Click="Reset_Click"
+                AutomationProperties.AutomationId="BtnResetLighting"
+                ToolTipService.ToolTip="{x:Bind local:Loc.T('Reset to defaults')}"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Page>

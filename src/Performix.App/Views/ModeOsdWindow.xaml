@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ModeOsdWindow — the desktop-level "mode switched" confirmation overlay
+  (docs\TOAST-ANIMATION-SPEC.md, "模式切换确认浮层").
+
+  This is a SECOND, deliberately tiny top-level window, not shell chrome: the overlay has to
+  survive the shell being hidden to the tray and it has to sit at the bottom of the *screen*.
+  It is created lazily on the first confirmed mode change and then reused forever — the HWND,
+  the XAML island and the Composition visuals are kept, each Show only swaps the glyph/text
+  and replays the animation (spec §3: no second window per notification).
+
+  HOST = CARD. WinUI 3 cannot make a top-level window per-pixel transparent, so a window
+  bigger than the card always shows an opaque slab around it (the first build did exactly
+  that: a black 32 DIP band under the card). The host window is therefore sized to the card
+  itself — DWM rounds the outer corners (DWMWCP_ROUND) and clips the card's fill at the same
+  radius — and the 24 DIP entry slide is done by moving the window frame by frame
+  (AppWindow.MoveAndResize, the same technique the shell uses for expand/collapse). The card
+  itself only animates Opacity (167 ms) and its icon (spec §5); it never animates Translation,
+  so no in-window headroom is needed.
+
+  Layout (spec §1): card 48 DIP tall, width content-driven and clamped to 160–280 DIP,
+  8 DIP radius, 1 px stroke, acrylic fill. The window is exactly that rectangle, so the card's
+  bottom edge is 24 DIP above the work-area bottom while it is at rest. The ThemeShadow from
+  spec §1 is dropped: with the window hugging the card there is no surface left to cast onto,
+  and a bigger window would bring the black slab back (see docs\R6-OSD.md).
+-->
+<Window
+    x:Class="Predex.WinUI.Views.ModeOsdWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="PerformixOSD">
+
+  <!-- Root fills the (card-sized) window. Nothing here paints outside the card. -->
+  <Grid x:Name="OsdRoot" Background="Transparent">
+
+    <!-- The card IS the window. The acrylic fill is a ~0.9 alpha brush, so the card still
+         reads as translucent over the desktop; its own 8 DIP radius sits inside DWM's window
+         rounding so no opaque corner shows.
+         Width is set from the measured text in the code-behind (160–280 DIP clamp). -->
+    <Border x:Name="Card"
+            CornerRadius="8"
+            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
+            BorderThickness="1"
+            Padding="16,0"
+            AutomationProperties.AutomationId="ModeOsdCard"
+            PointerEntered="Card_PointerEntered"
+            PointerExited="Card_PointerExited">
+
+      <StackPanel Orientation="Horizontal" Spacing="12"
+                  HorizontalAlignment="Center" VerticalAlignment="Center">
+
+        <!-- Icon: Segoe Fluent Icons, 20×20, accent #3B82F6 (spec §1). CenterPoint is set to
+             (10, 10, 0) by the code-behind so the per-mode Scale keyframes grow from the
+             icon centre. -->
+        <FontIcon x:Name="ModeIcon"
+                  FontFamily="Segoe Fluent Icons"
+                  FontSize="20"
+                  Width="20"
+                  Height="20"
+                  Foreground="#3B82F6"
+                  Glyph="&#xE945;"
+                  AutomationProperties.AutomationId="ModeOsdIcon"/>
+
+        <!-- 14 px SemiBold, single line, ellipsis at the 280 DIP cap (spec §1). -->
+        <TextBlock x:Name="ModeText"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   MaxLines="1"
+                   TextTrimming="CharacterEllipsis"
+                   VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                   AutomationProperties.AutomationId="ModeOsdText"/>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>
