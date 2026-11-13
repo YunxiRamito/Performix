@@ -2,15 +2,14 @@
   "schema": 1,
   "channel": "alpha",
   "version": "0.1.0-alpha.2",
-  "publishedAt": "2026-11-13T23:25:32Z",
-  "notes": "首个对外发布的测试版：应用内更新、安装器、设置区重构、新图标。",
-  "minVersion": "0.1.0-alpha.1",
+  "publishedAt": "2026-11-13T23:28:11Z",
+  "notes": "Performix 0.1.0-alpha.2\n\nChanges:\n- feat: 0.1.0-alpha.2 — 应用内更新、安装器、设置区重构、新图标\n- docs(adr): ADR-0003 capability availability (9 states) + token/error classification\n- docs(design): correct ATK access-denied cause (Low IL, not vendor ACL); record DSTS/DSTC DSDT evidence\n- feat(ui): settings hub + General/Power/Meta pages, page back-target table\n- docs(adr): add ADR-0002 privileged host/IPC; align ASUS data to T0\n- docs(data): ASUS TUF A16 FA607PI machine data (T0 read-only) + ATK interface family reference\n- fix(core): never disable PSSvc in Acer service debloater; add ADR/UI-arch/service-page docs\n- ci: park workflow as example until token has workflow scope\n- chore(license): adopt GPL-3.0; restore GHelperFanCurve with attribution\n- chore: bootstrap Performix from Predex（WinUI 3 + Acer 首版）",
   "assets": [
     {
       "name": "Performix-win-x64.zip",
       "url": "https://github.com/YunxiRamito/Performix/releases/download/v0.1.0-alpha.2/Performix-win-x64.zip",
-      "sizeBytes": 33490261,
-      "sha256": "a8d5e3e73dfbcee35db6546d3214f710eecf226180168e59276459e323585d8e"
+      "sizeBytes": 33489786,
+      "sha256": "3d504807e6e7a8f7b71604fd7a0dcb81dc3debe9db4191bfdc845fb77ffe719c"
     }
   ]
 }
