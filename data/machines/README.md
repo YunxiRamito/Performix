@@ -269,23 +269,24 @@ capabilities:
 | `verified_at` | ✅ | `YYYY-MM-DD` |
 | `write_verified` | ✅ | `true` 仅当真的写过并回读通过（此时 `level` 必须是 `T2`） |
 
-### 7.3 ⚠ 已知口径冲突（必须知道）
+### 7.3 等级口径（已澄清）
 
-现有第一份数据 `asus-tuf-a16-fa607pi.yaml` 的 `trust` 是：
+按 ADR D9.6：**`T2` = 维护者实机验证；`T1` = ≥3 台不同机器独立验证；`T0` = 单台社区机器/单次只读探测**。
+
+第一份数据 `asus-tuf-a16-fa607pi.yaml` 是**一次远程只读探测**、没有写入验证，因此是：
 
 ```yaml
-level: T1
+level: T0
 scope: single-machine-read-only
 write_verified: false
 ```
 
-但按 ADR D9.6，**`T1` = ≥3 台独立验证，单机只读探测应落 `T0`**。
-这份数据按「单机只读探测」标注为 `T1 社区单机（只读探测）`，是为了和提交要求一致；
-**在 ADR 澄清「单机只读探测」的等级名之前：**
+约束：
 
-- 读取方**不要**把它的 `T1` 当写入授权（`write_verified: false`，全部 `safety: NoWrite`）；
-- 生成器/校验器**不要**用 `level == T1` 反推「已经过 3 台验证」；
-- 待办：ADR 增加一个「单机只读探测」的正式等级名，然后把这份数据改成该等级。
+- 读取方**不要**把任何 `T0`/`T1` 当写入授权；写权限只由 `write_verified: true` + 能力级 `safety` 决定。
+- 生成器/校验器**不要**用 `level` 反推「已经过 N 台验证」以外的语义。
+- 新增数据时按其实际验证强度填 `T2`/`T1`/`T0`，不要为了好看抬高等级。
+
 
 ---
 
@@ -367,7 +368,7 @@ write_verified: false
 
 | 文件 | 机型 | 接口族 | `status` | `trust.level` |
 | --- | --- | --- | --- | --- |
-| [`asus-tuf-a16-fa607pi.yaml`](asus-tuf-a16-fa607pi.yaml) | ASUS TUF Gaming A16 FA607PI（Ryzen 9 7940HX + RTX 4070 Laptop，BIOS `FA607PI.311`） | `asus-atk` | `read-only-probed` | `T1`（单机只读探测，见 §7.3 冲突说明） |
+| [`asus-tuf-a16-fa607pi.yaml`](asus-tuf-a16-fa607pi.yaml) | ASUS TUF Gaming A16 FA607PI（Ryzen 9 7940HX + RTX 4070 Laptop，BIOS `FA607PI.311`） | `asus-atk` | `read-only-probed` | `T0`（单机只读探测，写入未验证） |
 
 ---
 

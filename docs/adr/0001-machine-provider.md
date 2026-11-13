@@ -17,6 +17,8 @@
 
 - 决策范围：整仓（`Performix.Core` / `Performix.App` / `Performix.Overlay` / `Performix.Probe` / 新宿主 / 测试 / 文档 / 数据）。
 - 取代：[../ARCHITECTURE.md](../ARCHITECTURE.md) §6「现在刻意不做品牌抽象层」的旧结论。
+- 修订：**宿主形态见 [ADR-0002](0002-privileged-host.md)**（2026-11-13 外部评审后改为自动启动的
+  Windows 服务 + 命名管道 IPC；本文 D3 第 1 条、D10 一行、备选 J、步骤 0 已同步加注）。
 - 相关：设置「服务」页（[../design/SERVICE-PAGE.md](../design/SERVICE-PAGE.md)）、README 的「机型适配」表、
   许可边界（[../LICENSING.md](../LICENSING.md)）。
 
@@ -188,15 +190,18 @@ UI 只认能力与语义，不认品牌。**
 
 **决策**：
 
-1. **单一特权宿主**（`Performix.Host`）独占硬件。v1 用**按需启动的提权进程**（`requireAdministrator`），
-   不是常驻 Windows 服务：不装服务、不建驱动，保持 no-driver fork 的定位（C2）。
-   以后若要服务化，宿主协议不变，只换宿主启动方式。
+1. **单一特权宿主**（`Performix.Host`）独占硬件。**宿主形态已由 [ADR-0002](0002-privileged-host.md)
+   修订为自动启动的 Windows 服务**（本节原定的「按需启动提权进程」作废）；服务配置、Session 0、
+   管道安全、消息格式、版本协商、多会话租约等**实现细节见 ADR 0002**。不装驱动、不建驱动服务，
+   保持 no-driver fork 的定位（C2）；宿主协议不变，只换了宿主启动方式。
 2. **UI / HUD / 托盘全部是非特权客户端**：
    - `Performix.App` 去掉 `app.manifest` 的 `requireAdministrator`，以普通用户运行；
-   - 需要提权时由宿主（或一个极小的提权启动器）拿 UAC，UI 不持特权；
+   - 提权只发生在**安装/升级**（安装程序）与显式的一次性排障工具；常驻部分由服务持特权，
+     UI 永远不持特权（实现见 [ADR-0002](0002-privileged-host.md) §4.3 权限墙）；
    - 客户端只发强类型命令、收状态快照，**不链接任何硬件访问代码**。
 3. **通信 = 带 ACL 的命名管道 + 强类型协议**：
-   - 管道名固定（如 `\\.\pipe\PerformixHost.v1`），**ACL 只允许交互用户与管理员**
+   - 管道名固定、**不带版本**（`\\.\pipe\PerformixHost`；版本走首帧 `Hello` 协商，见
+     [ADR-0002](0002-privileged-host.md) D7），**ACL 只允许交互用户与管理员**
      （`Interactive` / `Administrators`）；不开放 `Everyone`、不开放网络。
    - 消息用**固定枚举的命令 + 结构体参数**（`GetSnapshot` / `SetMode` / `SetFanDuty` /
      `ProbeExport` / `RestoreFans`…），带协议版本握手、请求 ID、超时、并发上限。
@@ -205,8 +210,9 @@ UI 只认能力与语义，不认品牌。**
      不是字符串直传（C9）。
    - 服务端用 `GetNamedPipeClientProcessId` + 进程校验确认调用者，拒绝非预期进程；
      并对单客户端做限流（防止本地 DoS）。
-4. **单实例**：全局命名 mutex（`Global\PerformixHost`）保证只有一个宿主；
-   客户端另有 UI 单实例 mutex（沿用现有内部标识 `PreySenseApp_Unique_System_Mutex_999` /
+4. **单实例**：宿主单实例**主要由 SCM 保证**（ADR-0002 D8）；`Global\PerformixHost` 命名 mutex
+   可保留作双保险（防手工起第二个进程）。客户端另有 UI 单实例 mutex（用 `Local\` 命名空间按会话隔离，
+   沿用现有内部标识 `PreySenseApp_Unique_System_Mutex_999` /
    `PredexWinUI_Unique_Mutex_1234` 的兼容面，见 [../DECISIONS-FOR-USER.md](../DECISIONS-FOR-USER.md) B2）。
    宿主退出后客户端要能显示「宿主未运行」并提供「启动宿主」；不要静默失败。
 5. **永远不做直接 EC 端口 I/O**（C8）：不装 WinRing0 / 不 `in/out` 端口 / 不映射物理内存写 EC。
@@ -415,6 +421,11 @@ UI 只认能力与语义，不认品牌。**
 | 机型数据 schema 全量设计 | 第二台真机验证后 | 一台机器的数据撑不起 schema，先小后大 |
 | 语言包热加载 | 不做（v1 切换语言重建窗口/提示重启） | 见 SERVICE-PAGE 附录 B |
 
+> **修订（2026-11-13，[ADR-0002](0002-privileged-host.md)）**：上表「跨进程写仲裁（驻留服务 / 驱动）」
+> 一行说的是**不靠驻留服务去跟别家 OEM 栈做写仲裁、不装驱动**，这条不变；
+> **我们自己的宿主服务化不在此列** —— 宿主是常驻 Windows 服务，按 ADR-0002 执行。
+> 「不装驱动」仍然是红线（C2 / C8）。
+
 4. **接口冻结策略**：v1 允许步骤 3 前调整；步骤 3 后只做「加字段 / 加可选成员」；
    第二个真机验证通过后做 v2 评审，删掉为单机型预留的字段（步骤 5）。
 5. **反模式**：不要为了「看起来通用」把 Acer 常量泛化命名（`AcerFanBehaviorWords` →
@@ -497,8 +508,8 @@ ACPI / EC 代码，**不需要额外授权**。这与 MIT 时期不同：那时�
 
 ### 5.2 负面 / 成本
 
-- **宿主是多出来的一层**：多一个进程、一套 IPC 协议、一套版本握手；首次启动多一次 UAC；
-  UI 要处理「宿主未运行 / 宿主崩溃 / 版本不匹配」三种状态。
+- **宿主是多出来的一层**：多一个常驻进程、一套 IPC 协议、一套版本握手；安装/升级时多一次 UAC
+  （运行时不再弹，见 ADR-0002）；UI 要处理「宿主未运行 / 宿主崩溃 / 版本不匹配」三种状态。
 - **数据文件与生成器是新增维护面**：schema、生成脚本、数据校验测试都要写；
   数据错了比代码错了更难发现（所以要有测试 + 证据链 + 信任等级）。
 - **Acer 代码要搬家**（大 diff），有搬错常量的风险 —— 缓解：只移动不改值 + golden byte 测试 +
@@ -513,7 +524,7 @@ ACPI / EC 代码，**不需要额外授权**。这与 MIT 时期不同：那时�
 | 位置 | 影响 |
 | --- | --- |
 | 新项目 `src/Performix.Host/` | 特权宿主：管道服务端、协议、arbiter、看门狗、审计、provider 组装 |
-| `src/Performix.App/app.manifest` | 去掉 `requireAdministrator`；改为提权启动宿主 |
+| `src/Performix.App/app.manifest` | 去掉 `requireAdministrator`；宿主由 Windows 服务启动（[ADR-0002](0002-privileged-host.md)），界面只负责请求 `StartService` |
 | `src/Performix.App`、`src/Performix.Overlay` | 改为宿主客户端；删除直连硬件的调用；厂商字面量进基线并逐步清零 |
 | `Core/Hardware/Acer*`、`PredatorPipeService`、`AcerProfileApplyTransaction` 等 | 迁到 `Providers/AcerGamingWmi/`；常量与帧结构零改动 |
 | `Core/Services/HardwareOperationGate.cs` | 被宿主内 `IHardwareArbiter` 取代（先包装、后删除） |
@@ -529,7 +540,8 @@ ACPI / EC 代码，**不需要额外授权**。这与 MIT 时期不同：那时�
 ### 5.4 不做的后果（也是决策的一部分）
 
 - 不做跨进程仲裁 → 直接 EC I/O 的工具我们管不到；靠检测 + 降级 + 提示兜底，**这是残余风险**。
-- 不做常驻服务 → 宿主生命周期跟随客户端；睡眠唤醒后由宿主重建连接并重新应用状态。
+- ~~不做常驻服务~~ → **已改判**：宿主是常驻 Windows 服务（[ADR-0002](0002-privileged-host.md)）；
+  代价是睡眠唤醒 / 快速启动后必须重新初始化（ADR-0002 D2 / N7），不能假设状态还在。
 - 不做热加载语言 → 切语言要重建窗口/重开宿主连接，但 v1 可接受。
 
 ---
@@ -544,10 +556,10 @@ ACPI / EC 代码，**不需要额外授权**。这与 MIT 时期不同：那时�
 | D | **只做能力位，不做 provider/宿主** | `IHardwareService` 上加一堆 `SupportsX` 布尔 | 只解决 UI 显示，不解决所有权/常量归属/隔离/特权边界 |
 | E | **抽象统一 EC 层** | 各家 EC 用一套读写抽象 | Acer 走 WMI 方法、ASUS 走 ATKACPI，没有共同模型；伪统一会诱导误写 |
 | F | **直接 fork GHelper 做 ASUS 版** | 不移植，维护两个上游分支 | 与「一个轻量前端」定位冲突；不解决 Acer；GPL 义务不会减少 |
-| G | **驻留服务 / 驱动做全局写仲裁** | 装服务或驱动，跨进程串行化硬件 | 违反 no-driver fork 红线；回到「装一堆后台服务」原点 |
+| G | **驻留服务 / 驱动做全局写仲裁** | 装服务或驱动，跨进程串行化硬件 | 违反 no-driver fork 红线；回到「装一堆后台服务」原点（注意：**我们自己的宿主服务化与之不同**，见 [ADR-0002](0002-privileged-host.md)） |
 | H | **照抄 GHelper 的结构** | 把 ASUS 代码连同单例/设置/UI 一起搬 | 接口被上游绑架；Acer 与 ASUS 又要打架 |
 | I | **进程内仲裁 + 危险操作「小心点」提示**（初版） | 只有一把锁，靠文档纪律防误写 | 挡不住第二个进程、挡不住直接 EC I/O 工具；已被外部评审否决 |
-| J | **用 Windows 服务做宿主（而非按需提权进程）** | 常驻服务 + 客户端 | 需要安装服务、卸载残留、与 no-driver fork 定位冲突；v1 不用，但协议保持可服务化 |
+| J | **用 Windows 服务做宿主（而非按需提权进程）** | 常驻服务 + 客户端 | **已改判**：2026-11-13 外部评审后采纳（见 [ADR-0002](0002-privileged-host.md)）。原判断是「需要安装服务、卸载残留、与 no-driver fork 定位冲突」；评审后认为常驻是后台与失效保护的前提，安装/卸载成本可控，且**服务 ≠ 驱动**，不碰 no-driver 红线 |
 
 ---
 
@@ -555,7 +567,7 @@ ACPI / EC 代码，**不需要额外授权**。这与 MIT 时期不同：那时�
 
 | 步骤 | 内容 | 退出条件（验收） |
 | --- | --- | --- |
-| **0. 宿主骨架 + 协议** | `Performix.Host` 提权进程：命名管道（ACL：交互用户 + 管理员）、协议版本握手、命令允许列表、单实例 mutex、审计日志骨架、`GetSnapshot` 只读命令；UI 改为客户端并显示「宿主未运行」 | 两个客户端能同时连；非交互用户连不上；未知命令被拒；宿主杀进程后客户端 3 s 内显示未运行；UI 以普通用户启动成功 |
+| **0. 宿主骨架 + 协议** | `Performix.Host`（先做控制台宿主，服务化见 [ADR-0002](0002-privileged-host.md)）：命名管道（ACL：交互用户 + 管理员）、协议版本握手、命令允许列表、单实例 mutex、审计日志骨架、`GetSnapshot` 只读命令；UI 改为客户端并显示「宿主未运行」 | 两个客户端能同时连；非交互用户连不上；未知命令被拒；宿主杀进程后客户端 3 s 内显示未运行；UI 以普通用户启动成功 |
 | **1. 能力接口 + 三态** | `IMachineProfile` / `ICapabilitySet`（三态 + 可用性 + 原因）/ `IHardwareProvider`（接口族）/ registry（精确→系列→Generic）+ 能力快照 JSON + 缓存键 | 编译 0 错误；单测：匹配/歧义→Generic、三态默认 fail-closed、缓存键含 BIOS/驱动、`Probed` 不可写、`Verified` 才可写；**不改任何硬件行为** |
 | **2. Generic provider** | 只读：GPU 传感器（NVML）+ Windows 电源模式（含 overlay scheme）；`PerformixProbe --probe` 输出**脱敏** JSON；在 PH317-55 上验证零写 | `--probe` JSON 通过 schema 校验且脱敏测试通过（无序列号/UUID/MAC/密钥/用户名路径/主机名）；日志证明零写 |
 | **3. Acer provider 改造 + 宿主接管** | Acer 实现迁入 `Providers/AcerGamingWmi/`；`HardwareOperationGate` → 宿主 arbiter；失效保护四项上线；服务页 v1（只读检测）；App 品牌字面量基线开始缩 | golden byte 测试全过；风扇/模式/灯效行为与改造前一致；95 °C 硬上限与退出归还实测通过；睡眠唤醒后重新应用通过；`brand-baseline.txt` 变短；服务页能列出 `PSSvc` 且**没有**任何启停按钮 |
@@ -652,6 +664,12 @@ Declared ──探测成功──► Probed ──写入+回读通过 / 维护�
   "warnings": ["rgb write not verified on hardware", "cpu power needs MSR driver — not supported in no-driver fork"]
 }
 ```
+
+**本仓当前的信任等级不是 T2**：唯一一台实测的 ASUS 机（TUF Gaming A16 **FA607PI**）是 **`T0`**
+（单台、单次、**只读**探测；没有写过任何硬件，见 `data/machines/asus-tuf-a16-fa607pi.yaml` 的
+`trust.level: T0` 与 [../design/ASUS-ATK-FAMILY.md](../design/ASUS-ATK-FAMILY.md)）。
+上面样例里的 `"trust": "T2"` 是 Acer 维护者实机的形态，**不是本仓现在的最高等级**；
+T0 数据最多把能力标到 `Probed`，不许标 `Verified`（D9.6 / 附录 A）。
 
 **引导式行为验证**（数据可信度靠它，不靠截图）：
 
@@ -870,7 +888,7 @@ public sealed record CompetitionReport(
 | 失效保护 | 退出/崩溃/睡眠时归还风扇、温度硬上限、审计日志、唤醒重应用 |
 | 直接 EC I/O | 绕过 WMI/ACPI 直接端口/物理内存访问 EC 的做法；**本项目永不做** |
 | 允许列表 | 服务页可操作的服务白名单（数据文件驱动）；驱动级服务一律不在内 |
-| 信任等级 | T2 维护者实机 / T1 多台独立 / T0 社区单台 / 未验证 |
+| 信任等级 | T2 维护者实机 / T1 多台独立 / T0 社区单台 / 未验证；**本仓当前这台 ASUS FA607PI 是 `T0`（单机只读探测，无写入证据）** |
 | Generic | 兜底 provider：GPU 传感器（NVML）+ Windows 电源模式（含 overlay），不碰 OEM 写通道 |
 
 ## 附录 F：与其他文档的关系 / 待同步

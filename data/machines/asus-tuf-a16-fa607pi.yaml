@@ -74,7 +74,7 @@ capabilities:
   fan_rpm_read:
     state: declared
     path: DSTS
-    note: "标准 WMI 只有 ACPI 热区 TZ01（温度），Win32_Fan / CIM_Fan 为空。转速来源候选：DSTS（本族）与 AsusHWMonitorWMI（本次访问被拒）。DSTS 未调用，转速值未取得"
+    note: "标准 WMI 只有 ACPI 热区 TZ01（温度），Win32_Fan / CIM_Fan 为空。转速来源候选：DSTS（本族）与 AsusHWMonitorWMI（本次访问被拒）。DSTS 未调用，转速值未取得。候选 Device_ID 见 ASUS-ATK-FAMILY.md，未调用（§9.7 的 0x00120094 / 0x00120097 是 GHelper 表里的温度候选，不是风扇）"
 
   rgb:
     state: unknown
@@ -185,6 +185,7 @@ trust:
 
 known_gaps:
   - "AsusHWMonitorWMI 访问被拒（类路径报「无法从客户端中访问 CIM 资源」；实例路径 ACPI\\PNP0C14\\AHWM_0 报「拒绝访问」）→ 多路传感器数值拿不到；没有做任何 ACL / 提权 / IOCTL 绕过"
+  - "DSTS 有两个 method ID（0x53544344 / 0x53545344）：本机 DSDT 只验证到后者（0x53545344）存在，前者没有检索也没有调用；运行时必须探测哪个可用，不能写死（见 ASUS-ATK-FAMILY.md §9.3）"
   - "标准 WMI 无风扇（Win32_Fan / CIM_Fan 空）；唯一 ACPI 热区 TZ01 = 3552（≈82.1 °C）"
   - "WmiMonitorListedSupportedSourceModes 只报 2560×1600@60；实际 165Hz 走 DisplayID → 禁止用 EDID 枚举刷新率"
   - "powercfg /L 只剩「平衡」，G-Helper 的 powermode（高性能 GUID 8c5e7fda…）映射落空"
