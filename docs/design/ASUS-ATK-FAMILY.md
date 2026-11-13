@@ -490,3 +490,44 @@ If (LEqual(IIA0, 0x00050011))
 | [SERVICE-PAGE.md](SERVICE-PAGE.md) | 服务页 v1：本文件的 §4 就是它的数据来源形态 |
 | [FINDINGS-PH317-55.md](../FINDINGS-PH317-55.md) | 另一接口族（Acer）的实测记录：刷新率走 Windows 显示 API；本族则是 EDID 不可信、必须以显示 API 为准 |
 | [README「机型适配」](../../README.md) | 用户可见的适配表与信任等级 |
+
+---
+
+## 10. 第二轮实测修正（2026-11-13，重要）
+
+第一轮把 `AsusHWMonitorWMI` 的「拒绝访问」归因为**驱动 SDDL 设计**，第二轮证明**归因是错的**。
+
+### 10.1 真实原因：调用进程处于 Low 完整性级别
+
+第二轮在同一台机器上复测时发现，做出调用的 PowerShell 处于 **Low IL**：
+
+```
+whoami 显示 Mandatory Label = Low Mandatory Level (S-1-16-4096)
+IsSystem=False（尽管令牌里 IsAdmin=True）
+```
+
+在这个完整性级别下，`Invoke-CimMethod` 对 `root\wmi` 的调用一律返回：
+
+```
+WBEM_E_ACCESS_DENIED = HRESULT 0x80041003
+CimException: 无法从客户端中访问 CIM 资源。
+```
+
+类路径与实例路径（`ACPI\PNP0C14\ATK_0`，Active=True）**同错**，因此这是**权限门禁**，不是参数错误、不是 ID 未实现、也不是厂商 ACL 白名单。
+
+### 10.2 对实现的三条含义
+
+1. **「类存在 + Implemented=True」≠「WMI 可调用」**。provider 走 `Invoke-CimMethod` 时，如果宿主进程令牌受限（Low IL、AppContainer、受限服务账户），会**静默失败成 `0x80041003`**，而不是报「未实现」。实现必须有降级路径，并且要把「权限不足」和「功能不存在」区分开上报。
+2. **方法名核对结果**：18 个方法与第一轮一致，**没有 `DSTC` 或任何别名**（`ANVI,BSTS,CBIF,DEVS,DSTS,GDSP,GLCD,INIT,KBNI,MWGF,OSVR,SCDG,SDSP,SFUN,SPBL,SPEC,VERS,WDOG`）。MOF 层 `DSTS` 被钉死在 `0x53545344`。
+3. **本机型 DSDT 只有 `DSTS`**：66728 字节里 ASCII `'DSTC'` 命中 **0 次**，`'DSTS'` 命中 1 次 @`0x092C2`。Linux 驱动那套「双 ID 运行时探测」在本机型上大概率首次命中 `DSTS`。
+   - 边界：23 张 SSDT 因共用同一表 ID 无法逐张读取，**不能 100% 排除** `DSTC` 在 SSDT 里。
+   - **WMI 无法指定任意 method id**：想试 `0x53544344` 必须走 ATKACPI 的 IOCTL，不能靠 `Invoke-CimMethod`。
+
+### 10.3 拿到真读数只剩两条路（均需额外授权，本轮未执行）
+
+| 路线 | 做法 | 风险 | 前置条件 |
+|---|---|---|---|
+| A（低风险） | 在**普通提权（Medium/High IL）**的进程里重跑同一批 `Invoke-CimMethod(DSTS, ...)` | 低：仍是只读 | 需要一次 UAC 提权 |
+| B（中风险） | P/Invoke `CreateFile("\\.\ATKACPI")` + `DeviceIoControl`，分别发 `0x53545344` 与 `0x53544344` | 中：IOCTL 直通驱动，参数错了行为不可预期 | 需要 Medium/High IL，且必须先有 DSDT 证据 |
+
+**本篇结论因此修正为**：本机型 `AsusHWMonitorWMI` 不可用的判断**尚未成立**；此前记录「访问被拒/疑似厂商 ACL」应改为「**在 Low IL 下访问被拒，原因未定论**」。任何后续 provider 实现都必须先报告调用进程的完整性级别，再下结论。
