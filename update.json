@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "channel": "alpha",
+  "version": "0.1.0-alpha.2",
+  "publishedAt": "2026-11-13T23:25:32Z",
+  "notes": "首个对外发布的测试版：应用内更新、安装器、设置区重构、新图标。",
+  "minVersion": "0.1.0-alpha.1",
+  "assets": [
+    {
+      "name": "Performix-win-x64.zip",
+      "url": "https://github.com/YunxiRamito/Performix/releases/download/v0.1.0-alpha.2/Performix-win-x64.zip",
+      "sizeBytes": 33490261,
+      "sha256": "a8d5e3e73dfbcee35db6546d3214f710eecf226180168e59276459e323585d8e"
+    }
+  ]
+}
