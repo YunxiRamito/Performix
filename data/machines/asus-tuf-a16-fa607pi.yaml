@@ -1,0 +1,205 @@
+# Performix 机型数据 · ASUS TUF Gaming A16 FA607PI
+#
+# 来源：2026-11-13 对一台真机的远程只读探测。没有执行任何写入、没有订阅事件、没有启停服务。
+# 接口族参考与证据：docs/design/ASUS-ATK-FAMILY.md
+# 字段定义：data/machines/README.md；信任等级：docs/adr/0001-machine-provider.md D9.6
+#
+# 硬规则：探测没给结论的一律 unknown / null。不编造字节、返回值、转速、模式字节。
+
+schema: 1
+
+id: asus-tuf-a16-fa607pi
+brand: ASUS
+series: TUF Gaming A16
+display_name: "TUF Gaming A16 FA607PI"
+
+identity:
+  vendor: ASUSTeK
+  model: TUF Gaming A16 FA607PI
+  cpu: AMD Ryzen 9 7940HX
+  gpu: NVIDIA RTX 4070 Laptop
+  bios: FA607PI.311
+  smbios_family: null          # 本次探测没采集 SMBIOS（也没有厂商自定义表）
+
+interface_family: asus-atk    # WMNB / DSTS / DEVS；ADR D9.1 的 Providers/AsusAtk/
+
+host:
+  driver: ASUS System Control Interface v3
+  driver_version: 3.1.72.0
+  driver_state: running
+  wmi_instances:
+    - 'ACPI\PNP0C14\ATK_0'
+    - 'ACPI\PNP0C14\AHWM_0'
+  absent_classes:              # 本次枚举确认不存在，别再去找
+    - ASUSManagement
+    - AsusOptimization
+    - ASUSWMI
+    - ASUSSystemControl
+
+identification:
+  # ADR D1 的识别依据是「SMBIOS 厂商 + 产品串（+ BIOS 区间）」。本次只有 BIOS 串与 WMI 类/实例，
+  # 不够判 ExactMatch，所以不声明匹配强度。
+  match_quality: unassessed
+  signals:
+    - kind: bios_string
+      value: FA607PI.311
+    - kind: wmi_class
+      value: 'root\wmi:AsusAtkWmi_WMNB'
+      instance: 'ACPI\PNP0C14\ATK_0'
+      methods: 18
+      implemented: 18
+    - kind: host_driver
+      value: ASUS System Control Interface v3
+      version: 3.1.72.0
+  missing:
+    - smbios_manufacturer
+    - smbios_product
+    - smbios_board
+
+capabilities:
+  mode_set:
+    state: probed
+    path: DEVS
+    safety: NoWrite
+    readback: None
+    note: "写路径 DEVS 由 DSDT（0x0A1EC 命中）与 18 方法 MOF 共同确认；ACPI 侧是三参数 WMNB(id,arg1,arg2)。本次没有调用任何 WMNB，写入与回读强度未验证，档位字节与语义未取得"
+
+  fan_curve:
+    state: declared
+    path: DEVS
+    safety: NoWrite
+    readback: None
+    note: "数据声明风扇曲线走 DEVS；未做任何写入验证（本机没有执行过 ASUS 写路径调用）"
+
+  fan_rpm_read:
+    state: declared
+    path: DSTS
+    note: "标准 WMI 只有 ACPI 热区 TZ01（温度），Win32_Fan / CIM_Fan 为空。转速来源候选：DSTS（本族）与 AsusHWMonitorWMI（本次访问被拒）。DSTS 未调用，转速值未取得"
+
+  rgb:
+    state: unknown
+    safety: NoWrite
+    note: "本次探测没采集键盘灯，也没有调用任何灯效相关方法；WMNB 18 个方法名里没有 RGB / 灯效关键字，但这只是命名事实，不能推断不支持"
+
+  gpu_clock_oc:
+    state: declared
+    path: NVAPI
+    safety: NoWrite
+    readback: None
+    note: "RTX 4070 Laptop + NVAPI 是项目既有能力声明（ADR 附录 A），不是本次探测结论；本机未验证，且 NVAPI 不属于本接口族（ADR D8）"
+
+  mux:
+    state: unknown
+    safety: NoWrite
+    note: "未探测：本机有没有 MUX、读什么接口、写什么接口都没有数据"
+
+  refresh_rate:
+    state: probed
+    path: windows-display-api
+    safety: NoWrite
+    readback: None
+    note: "只读结论：当前 2560×1600@165Hz；WmiMonitorListedSupportedSourceModes 只报 2560×1600@60（165Hz 走 DisplayID）。禁止用 EDID 基础列表枚举档位；切换未验证"
+
+  charge_limit:
+    state: declared
+    safety: NoWrite
+    readback: None
+    note: "DSDT 的 DEVS 分支里 BLCT 疑似充电阈值类二值开关（If(Arg0==2) Store(One/Zero, BLCT)），属推测、未验证；电池快照 100% / Charging=False / ChargeRate=0 不能当阈值证据"
+
+  pl_write:
+    state: unsupported
+    safety: NoWrite
+    note: "CPU PL 写入需要 MSR / 驱动，是项目红线（ADR C8 / D3 no-driver fork）；按 NoWrite 处理，不尝试"
+
+modes:
+  state: unknown
+  values: []                   # 探测没有取得任何档位字节，不填占位值
+  note: "档位字节与语义均未探测。G-Helper 的 powermode 指向「高性能」GUID 8c5e7fda…，本机 powercfg /L 只剩「平衡」→ 该映射在本机落空；这个 GUID 是 Windows 电源方案，不是 ASUS 档位字节，别拿来当模式 id"
+
+fans:
+  state: unknown
+  fan_ids: null
+  unit: null
+  rpm_readback: unknown
+  note: "只确认标准 WMI 没有风扇对象（Win32_Fan / CIM_Fan 空）；fanId 编号、占空比单位、最小占空比 / 转速地板全部未取得"
+
+services:
+  - id: ASUSOptimization
+    kind: service
+    state: disabled
+    required_by_us: unknown
+    note: "Disabled 不影响 AsusAtkWmi_WMNB 类与 18 个方法存在（已探测）"
+  - id: AsusCertService
+    kind: service
+    state: disabled
+    required_by_us: unknown
+  - id: asus-system-control-interface-v3
+    kind: driver
+    role: wmi-host-driver
+    name: ASUS System Control Interface v3
+    version: 3.1.72.0
+    state: running
+    required_by_us: unknown
+    note: "本次没有做停驱动 / 停服务对照，类对它的依赖关系未验证"
+
+competitors:
+  - id: GHelper
+    kind: scheduled_task
+    trigger: logon
+    principal: Interactive
+    run_level: highest
+    state: running
+    note: "替代奥创后留下的主任务；登录即启动，随时可能回来抢同一族 WMI 通道"
+    config:
+      path: '%APPDATA%\GHelper\config.json'
+      keys: 84
+      groups: { performance: 3, fan: 10, limit: 12, gpu: 19, undervolt: 9, power: 6, autoapply: 6, aura: 3, display: 8, keyboard: 3, misc: 2 }
+      ungrouped_keys: [cpu_temp_0, cpu_temp_1, cpu_temp_2]
+      powermode: "指向「高性能」GUID 8c5e7fda…；本机 powercfg /L 只剩「平衡」→ 映射落空"
+  - id: GHelperCharge
+    kind: scheduled_task
+    trigger: boot
+    principal: S4U
+    run_level: limited
+    state: ready
+  - id: ArmourySocketServer
+    kind: service
+    state: disabled
+  - id: startup-surfaces
+    kind: startup_entries
+    state: empty
+    note: "HKCU\\Run / HKLM\\Run / 启动文件夹均空 → 本机互斥检测只需盯上面两个计划任务（这是本机事实，不要推广成通用结论）"
+
+status: read-only-probed
+status_note: "远程真机只读探测完成；没有写入、没有订阅事件、没有启停服务"
+
+trust:
+  # ADR D9.6: T0 = 单台社区机器/单次只读探测；T1 = ≥3 台独立验证；T2 = 维护者实机。
+  # This machine was probed once, remotely, read-only; nothing was written, so it is T0.
+  # Consumers must NOT treat this level as write authorization.
+  level: T0
+  scope: single-machine-read-only
+  verified_by: remote read-only probe
+  verified_at: 2026-11-13
+  write_verified: false
+
+known_gaps:
+  - "AsusHWMonitorWMI 访问被拒（类路径报「无法从客户端中访问 CIM 资源」；实例路径 ACPI\\PNP0C14\\AHWM_0 报「拒绝访问」）→ 多路传感器数值拿不到；没有做任何 ACL / 提权 / IOCTL 绕过"
+  - "标准 WMI 无风扇（Win32_Fan / CIM_Fan 空）；唯一 ACPI 热区 TZ01 = 3552（≈82.1 °C）"
+  - "WmiMonitorListedSupportedSourceModes 只报 2560×1600@60；实际 165Hz 走 DisplayID → 禁止用 EDID 枚举刷新率"
+  - "powercfg /L 只剩「平衡」，G-Helper 的 powermode（高性能 GUID 8c5e7fda…）映射落空"
+  - "SMBIOS 厂商 / 产品 / 主板串未采集（smbios_family 为 null），识别强度无法按 ADR D1 判定"
+  - "DSDT 只在内存检索、未落盘；偏移（0x092C2 等）只对本次镜像有效，BIOS 更新必须重探"
+  - "没有 docs/FINDINGS-FA607PI.md（ADR D9.5 要求每台受支持机型都有）；写入行为完全没有证据，信任等级不是 T2"
+
+evidence:
+  probe: docs/design/ASUS-ATK-FAMILY.md
+  probe_date: 2026-11-13
+  dsdt:
+    size: 66728
+    oem_id: "_ASUS_"
+    retrieval: in-memory-scan-only     # 未落盘
+    dsts_at: '0x092C2'
+    devs_at: '0x0A1EC'
+    wmnb_at: '0x091DE'
+  write: none                          # 没有任何写入类证据

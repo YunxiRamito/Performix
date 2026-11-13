@@ -56,6 +56,9 @@ WMI / EC / HID / 管道通道读写风扇、功耗、灯效和显示模式，给
 | ASUS | ROG Zephyrus（G14 / G15 / G16 / G17 等） | 待核实（上游 GHelper 走 `\\.\ATKACPI` + ASUS ACPI-WMI，本项目未验证） | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实（Armoury Crate 相关服务需逐个核实） | **未在本项目实测，待验证** | `未验证` |
 | ASUS | ROG Strix（G15 / G16 / G17 · Scar / Hero） | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | **未在本项目实测，待验证** | `未验证` |
 | ASUS | TUF Gaming（A15 / A16 / F15 / F16 等） | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | 待核实 | **未在本项目实测，待验证** | `未验证` |
+| ASUS | TUF Gaming · **A16 FA607PI**（Ryzen 9 7940HX + RTX 4070 Laptop，BIOS `FA607PI.311`） | BIOS 串 `FA607PI.311` + `root\wmi:AsusAtkWmi_WMNB`（实例 `ACPI\PNP0C14\ATK_0`，18 方法全 Implemented）+ 宿主驱动 `ASUS System Control Interface v3` 3.1.72.0 · SMBIOS 厂商 / 产品串未采集 | 未验证 · `DEVS` 写路径存在（ACPI 三参数 `WMNB(id,arg1,arg2)`，DSDT 命中 `0x0A1EC`）· 档位字节 / 回读未取得 · `powercfg` 只剩「平衡」 | 未验证 · 标准 WMI 无风扇（`Win32_Fan` / `CIM_Fan` 空）· 唯一热区 `TZ01` = 3552（≈82.1 °C）· 转速需 `DSTS` 或 `AsusHWMonitorWMI`（后者访问被拒） | ❓ 未探测（本次没采集；WMNB 18 个方法名无灯效关键字 ≠ 不支持） | 未验证 · NVAPI 路径（RTX 4070 Laptop，项目既有能力） | ❓ 未知（未探测） | 只读已探测 · 实际 2560×1600@165Hz（走 DisplayID）· `WmiMonitorListedSupportedSourceModes` 只报 60Hz → 禁用 EDID 枚举 · 切换未验证 | `ASUSOptimization` / `AsusCertService` 均 Disabled（不影响类存在）· 宿主驱动 `ASUS System Control Interface v3` 运行中 · `ArmourySocketServer` Disabled · G-Helper 两个计划任务在（见下句） | 只读探测完成（远程真机）· 写入未验证 | `T0 单机只读探测` |
+
+该行数据来自远程只读探测（2026-11-13，ASUS TUF Gaming A16 FA607PI），写入行为未验证；数据源 `data/machines/asus-tuf-a16-fa607pi.yaml`，接口证据见 [docs/design/ASUS-ATK-FAMILY.md](docs/design/ASUS-ATK-FAMILY.md)。
 
 **读表规则（改表前先读这几条）：**
 
