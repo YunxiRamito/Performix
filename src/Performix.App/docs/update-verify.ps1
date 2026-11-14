@@ -27,8 +27,21 @@
       2. records the page-background pixel and the accent-pixel count of every shot, then
          fails the run if the four backgrounds differ or a shot contains no accent pixels;
       3. fails the run unless shell.log confirms theme=Light / material=Solid.
-    Windows.Graphics.Capture would be the other way out of the PrintWindow limitation, but it
-    needs a Direct3D interop host in PowerShell; pinning the theme is the cheaper honest fix.
+
+    TWO CAPTURE PATHS. Save-Shot tries PrintWindow(PW_RENDERFULLCONTENT) first and falls back to
+    BitBlt from the screen DC, which is what the compositor actually put on the display. That
+    fallback is the documented answer to a window whose content lives in a Composition content
+    island (PrintWindow returns the bare window surface while the real pixels are on screen).
+    Windows.Graphics.Capture would read the composition layer directly, but it needs a Direct3D
+    interop host in PowerShell; the two GDI paths plus the theme pin cover both cases this script
+    has actually met. When BOTH paths are blank the run says so explicitly: that is the app not
+    presenting anything, and no capture technique can recover it.
+
+    FAILING RUNS MUST NOT DESTROY EVIDENCE. Every capture is written to a staging directory under
+    %TEMP% first; docs\*.png is only written after all assertions passed, and a capture whose ink
+    is below the blank floor is refused at that gate. A red run therefore leaves the committed
+    screenshots alone and prints the staging path for diagnosis - it used to overwrite docs\*.png
+    with blank white images, which is worse than no run at all.
 
     The feed is served by update-test-server.ps1 on 127.0.0.1, and the app is launched with
     --update-feed=... — that switch also suppresses installing (App.OnLaunched), so nothing
@@ -76,6 +89,9 @@ public static class UpdV
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr h, IntPtr dc);
+    [DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr dst, int x, int y, int w, int h, IntPtr src, int sx, int sy, uint rop);
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
 
@@ -106,6 +122,15 @@ public static class UpdV
 
     public static bool PrintTo(IntPtr hwnd, IntPtr hdc) => PrintWindow(hwnd, hdc, 2);
 
+    /// <summary>Screen pixels of the window rect, the fallback capture path.</summary>
+    public static bool BitBltFromScreen(IntPtr hdc, int x, int y, int w, int h)
+    {
+        IntPtr src = GetDC(IntPtr.Zero);
+        if (src == IntPtr.Zero) return false;
+        try { return BitBlt(hdc, 0, 0, w, h, src, x, y, 0x00CC0020); }
+        finally { ReleaseDC(IntPtr.Zero, src); }
+    }
+
     public static int[] RectOf(IntPtr h)
     {
         RECT r;
@@ -121,6 +146,11 @@ public static class UpdV
 
 $serverScript = Join-Path $PSScriptRoot 'update-test-server.ps1'
 $workRoot = Join-Path $env:TEMP ('PerformixUpdateVerify-' + (Get-Date -Format 'yyyyMMddHHmmss'))
+# Screenshots are written HERE first and only copied into $OutDir after every assertion passed.
+# A failing run used to overwrite the committed docs\*.png with blank captures, i.e. it destroyed
+# the very evidence it was supposed to protect. Now a failure leaves docs\ untouched and points
+# at this directory instead.
+$shotStaging = Join-Path $workRoot 'shots'
 $updateTemp = Join-Path $env:TEMP 'Performix\update'
 $serverLog = Join-Path $workRoot 'update-server.log'
 $shellLog = Join-Path (Split-Path -Parent (Resolve-Path $Exe).Path) 'shell.log'
@@ -172,12 +202,20 @@ function Restore-Appearance {
 
 # Per-shot evidence collected by Save-Shot and asserted at the end of the run.
 $script:shots = [System.Collections.Generic.List[object]]::new()
+# The blank-capture floor: a real page is well above 0.5% ink; a PrintWindow that returned
+# nothing is 0.0%. Same number for the assertion and for the publish gate.
+$script:minInk = 0.005
+# Set by Save-Shot when the screen path DID show pixels even though neither path produced an
+# acceptable (app-surface) image. It separates "the capture path is blind" from "the window is
+# painting its own surface and nothing else", which are different bugs.
+$script:screenShowedSomething = $false
 
 function Write-Step([string]$text) { Write-Output "== $text" }
 function Zz([string]$text) { Write-Output "   $text" }
 
 if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
 if (-not (Test-Path -LiteralPath $workRoot)) { New-Item -ItemType Directory -Path $workRoot -Force | Out-Null }
+if (-not (Test-Path -LiteralPath $shotStaging)) { New-Item -ItemType Directory -Path $shotStaging -Force | Out-Null }
 
 # ── Helpers (same primitives as ia-verify.ps1) ────────────────────────────────────────────
 function Get-ShellWindow([int]$processId, [int]$tries = 80) {
@@ -191,13 +229,28 @@ function Get-ShellWindow([int]$processId, [int]$tries = 80) {
 }
 
 function Measure-Ink([System.Drawing.Bitmap]$bmp) {
-    $reference = $bmp.GetPixel(1, 1)
+    # Reference colour = the MODAL colour, not pixel (1,1). A DWM-rounded window has a
+    # transparent/black corner, so (1,1) is often not the page colour at all: with that pixel as
+    # the reference a perfectly blank window measured 100% "ink" and a real page could measure
+    # low. The most common colour is the page surface in every state this script captures.
+    $counts = @{}
+    for ($y = 0; $y -lt $bmp.Height; $y += 6) {
+        for ($x = 0; $x -lt $bmp.Width; $x += 6) {
+            $c = $bmp.GetPixel($x, $y)
+            $key = ([int]$c.R -shl 16) -bor ([int]$c.G -shl 8) -bor [int]$c.B
+            if ($counts.ContainsKey($key)) { $counts[$key]++ } else { $counts[$key] = 1 }
+        }
+    }
+    if ($counts.Count -eq 0) { return 0 }
+    $modal = ($counts.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 1).Key
+    $refR = ($modal -shr 16) -band 0xFF; $refG = ($modal -shr 8) -band 0xFF; $refB = $modal -band 0xFF
+
     $differing = 0; $sampled = 0
     for ($y = 0; $y -lt $bmp.Height; $y += 3) {
         for ($x = 0; $x -lt $bmp.Width; $x += 3) {
             $sampled++
             $c = $bmp.GetPixel($x, $y)
-            if ([Math]::Abs($c.R - $reference.R) + [Math]::Abs($c.G - $reference.G) + [Math]::Abs($c.B - $reference.B) -gt 12) { $differing++ }
+            if ([Math]::Abs($c.R - $refR) + [Math]::Abs($c.G - $refG) + [Math]::Abs($c.B - $refB) -gt 12) { $differing++ }
         }
     }
     if ($sampled -eq 0) { return 0 }
@@ -234,30 +287,98 @@ function Get-PageBackground([System.Drawing.Bitmap]$bmp, [double]$scale) {
 function Save-Shot([IntPtr]$handle, [string]$name) {
     $rect = [UpdV]::RectOf($handle)
     if ($rect.Length -eq 0) { Zz "shot $name FAILED (no rect)"; return }
-    $bmp = New-Object System.Drawing.Bitmap($rect[2], $rect[3])
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $hdc = $g.GetHdc()
-    $ok = [UpdV]::PrintTo($handle, $hdc)
-    $g.ReleaseHdc($hdc)
-    $g.Dispose()
+
+    # TWO capture paths, in order of fidelity:
+    #   1. PrintWindow(PW_RENDERFULLCONTENT) — the window's own redirection surface;
+    #   2. BitBlt from the screen DC — what the compositor actually put on the display.
+    # Path 2 is the documented fallback for a window whose content lives in a Composition
+    # content island: PrintWindow can return the bare window surface while the real pixels are
+    # on the screen. A screen capture is only accepted when it still shows the app's own pinned
+    # surface — otherwise it captured the desktop behind an un-painted window, which looks like
+    # "lots of ink" while containing nothing of the app.
+    # The capture that is KEPT for diagnosis when neither path produced an acceptable image:
+    # the window's own surface (PrintWindow), because that is the one that describes the window.
+    $bmp = $null; $ok = $false; $pathUsed = 'PrintWindow'; $accepted = $false
+    $first = $null; $firstOk = $false; $screenInk = 0.0
+    foreach ($mode in 'PrintWindow', 'BitBlt') {
+        $candidate = New-Object System.Drawing.Bitmap($rect[2], $rect[3])
+        $g = [System.Drawing.Graphics]::FromImage($candidate)
+        $hdc = $g.GetHdc()
+        $ok = if ($mode -eq 'PrintWindow') {
+            [UpdV]::PrintTo($handle, $hdc)
+        } else {
+            [UpdV]::BitBltFromScreen($hdc, $rect[0], $rect[1], $rect[2], $rect[3])
+        }
+        $g.ReleaseHdc($hdc)
+        $g.Dispose()
+
+        $candidateScale = [UpdV]::DpiOf($handle) / 96.0
+        $candidateBackground = Get-PageBackground $candidate $candidateScale
+        $candidateHex = ('#{0:X2}{1:X2}{2:X2}' -f $candidateBackground.R, $candidateBackground.G, $candidateBackground.B)
+        $candidateInk = Measure-Ink $candidate
+
+        if ($mode -eq 'PrintWindow') {
+            $first = $candidate; $firstOk = $ok
+        } else {
+            $screenInk = $candidateInk
+            if ($null -ne $bmp) { $bmp.Dispose() }
+        }
+
+        $bmp = $candidate
+        $pathUsed = $mode
+        if ($candidateInk -ge $script:minInk -and $candidateHex -eq $pinnedBackground) {
+            $accepted = $true
+            break
+        }
+        if ($mode -eq 'PrintWindow') { $bmp = $null }   # $first holds it; do not double-dispose
+    }
+    if (-not $accepted) {
+        # Neither path saw the app's own surface: keep the window-surface capture and say so.
+        if ($null -ne $bmp) { $bmp.Dispose() }
+        $bmp = $first
+        $ok = $firstOk
+        $pathUsed = 'PrintWindow'
+        if ($screenInk -ge $script:minInk) { $script:screenShowedSomething = $true }
+    } elseif ($null -ne $first -and -not [object]::ReferenceEquals($first, $bmp)) {
+        $first.Dispose()
+    }
+
     $ink = Measure-Ink $bmp
     $scale = [UpdV]::DpiOf($handle) / 96.0
     $background = Get-PageBackground $bmp $scale
     $accent = Measure-Accent $bmp
-    $path = Join-Path $OutDir $name
+    # Staging, never $OutDir: the committed docs\*.png must survive a failed run.
+    $path = Join-Path $shotStaging $name
     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
 
     $script:shots.Add([pscustomobject]@{
         Name       = $name
+        Path       = $path
         Background = ('#{0:X2}{1:X2}{2:X2}' -f $background.R, $background.G, $background.B)
         Accent     = $accent
         Ink        = $ink
+        Capture    = $pathUsed
     })
 
-    Zz ("shot {0} {1}x{2} physical = {3:N0}x{4:N0} DIP ink={5:P1} bg={6} accentPx={7} PrintWindow={8}" -f `
+    Zz ("shot {0} {1}x{2} physical = {3:N0}x{4:N0} DIP ink={5:P1} bg={6} accentPx={7} {8}={9} → {10}" -f `
         $name, $rect[2], $rect[3], ($rect[2] / $scale), ($rect[3] / $scale), $ink,
-        ('#{0:X2}{1:X2}{2:X2}' -f $background.R, $background.G, $background.B), $accent, $ok)
+        ('#{0:X2}{1:X2}{2:X2}' -f $background.R, $background.G, $background.B), $accent,
+        $pathUsed, $ok, $path)
+}
+
+# The only place that writes $OutDir. Runs after every assertion passed, so a red run cannot
+# leave a blank capture in docs\ where it reads as "the UI really looks like that".
+function Publish-Shots {
+    foreach ($shot in $script:shots) {
+        $target = Join-Path $OutDir $shot.Name
+        if ($shot.Ink -lt $script:minInk) {
+            throw ("refusing to write {0}: ink {1:P1} is below the {2:P1} floor (blank capture)" -f `
+                $target, $shot.Ink, $script:minInk)
+        }
+        Copy-Item -LiteralPath $shot.Path -Destination $target -Force
+        Zz "published $($shot.Name) → $target"
+    }
 }
 
 function Find-Ui([IntPtr]$root, [string]$automationId) {
@@ -610,7 +731,7 @@ foreach ($shot in $script:shots) {
         Write-Warning "$($shot.Name) has only $($shot.Accent) accent pixels: the accent fill is missing or not the fixed #3B82F6"
         $failed = $true
     }
-    if ($shot.Ink -lt 0.005) {
+    if ($shot.Ink -lt $script:minInk) {
         Write-Warning ("{0} looks blank (ink {1:P1})" -f $shot.Name, $shot.Ink)
         $failed = $true
     }
@@ -638,8 +759,41 @@ if ($null -eq $appearanceLine) {
     Zz "theme pin confirmed by shell.log: $appearanceLine"
 }
 
-if ($failed) { throw 'screenshot assertions failed' }
+if ($failed) {
+    # Say WHY, not just that it failed. Both paths (PrintWindow and the screen) are tried by
+    # Save-Shot; when every shot is blank even from the screen DC, the window is not presenting
+    # its content at all and no capture technique can help — that is an application-side
+    # failure, not a limitation of this script. The alternatives, in order:
+    #   * Windows.Graphics.Capture (Windows.UI.Composition + Direct3D interop host): reads the
+    #     composition layer directly, so it survives a blind PrintWindow — but it still sees
+    #     nothing if the island is not composited, which is the case when the screen is blank too;
+    #   * launch the app with the window chrome off (a verification switch) when the chrome is
+    #     what breaks the content island;
+    #   * run the verification on a machine whose Windows build matches the bundled Windows App
+    #     SDK (see the note in this file's header).
+    $blankFromScreen = @($script:shots | Where-Object { $_.Capture -eq 'BitBlt' -and $_.Ink -lt $script:minInk })
+    if ($blankFromScreen.Count -eq $script:shots.Count) {
+        Write-Warning ("every capture is blank from BOTH paths (PrintWindow and screen BitBlt): the " +
+            "window is not presenting its content, so no capture technique can recover it. " +
+            "This is an application / OS-side composition failure, not a screenshot-script one.")
+    } elseif ($script:screenShowedSomething) {
+        Write-Warning ("PrintWindow returned nothing but the screen DID show pixels: this is the " +
+            "Composition-content-island case. Neither GDI path captured the app surface, so the " +
+            "next step is Windows.Graphics.Capture (reads the composition layer directly, needs a " +
+            "Direct3D interop host) - do not relax the assertions.")
+    } elseif ($script:screenShowedSomething) {
+        Write-Warning ("PrintWindow returned nothing but the screen DID show pixels: this is the " +
+            "Composition-content-island case. Neither GDI path captured the app surface, so the " +
+            "next step is Windows.Graphics.Capture (reads the composition layer directly, needs a " +
+            "Direct3D interop host) - do not relax the assertions.")
+    }
+    Write-Warning ("the captures are kept for diagnosis in {0}; {1} was NOT touched" -f $shotStaging, $OutDir)
+    throw 'screenshot assertions failed'
+}
 Zz ("all five screenshots: one page background ({0}); accent present in the four interactive states" -f $reference.Background)
+
+Write-Step "publishing the five screenshots to $OutDir (all assertions passed)"
+Publish-Shots
 
 # ── 7. Evidence ──────────────────────────────────────────────────────────────────────────
 Write-Step 'shell.log update lines (last run)'

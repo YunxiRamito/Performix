@@ -23,11 +23,25 @@
 #
 # Log evidence: exe-directory shell.log gets `nav: navigate Settings -> General` /
 # `nav: back General -> Settings` lines from ShellWindow (started with --trace).
+#
+# FAILING RUNS MUST NOT DESTROY EVIDENCE. Every capture goes to a staging directory under %TEMP%
+# first. docs\*.png is only written once every capture passed the blank gate (ink >= 0.5%); a run
+# that captured nothing keeps its images in the staging directory, prints the path, and exits
+# non-zero instead of overwriting the committed screenshots with blank white pages.
 
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [string]$OutDir = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path 'docs')
 )
+
+# The blank-capture floor: a real page is well above 0.5% ink; a PrintWindow that returned
+# nothing is 0.0%.
+$script:minInk = 0.005
+$script:shots = [System.Collections.Generic.List[object]]::new()
+$script:shotStaging = Join-Path $env:TEMP ('PerformixIaVerify-' + (Get-Date -Format 'yyyyMMddHHmmss') + '\shots')
+if (-not (Test-Path -LiteralPath $script:shotStaging)) {
+    New-Item -ItemType Directory -Path $script:shotStaging -Force | Out-Null
+}
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -52,6 +66,9 @@ public static class IAV
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr h, IntPtr dc);
+    [DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr dst, int x, int y, int w, int h, IntPtr src, int sx, int sy, uint rop);
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr ctx);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
 
@@ -85,6 +102,15 @@ public static class IAV
 
     public static bool PrintTo(IntPtr hwnd, IntPtr hdc) => PrintWindow(hwnd, hdc, 2);
 
+    /// <summary>Screen pixels of the window rect, the fallback capture path.</summary>
+    public static bool BitBltFromScreen(IntPtr hdc, int x, int y, int w, int h)
+    {
+        IntPtr src = GetDC(IntPtr.Zero);
+        if (src == IntPtr.Zero) return false;
+        try { return BitBlt(hdc, 0, 0, w, h, src, x, y, 0x00CC0020); }
+        finally { ReleaseDC(IntPtr.Zero, src); }
+    }
+
     public static int[] RectOf(IntPtr h)
     {
         RECT r;
@@ -117,13 +143,26 @@ function Report-Rect([IntPtr]$handle, [string]$label) {
 }
 
 function Measure-Ink([System.Drawing.Bitmap]$bmp) {
-    $reference = $bmp.GetPixel(1, 1)
+    # Reference colour = the MODAL colour, not pixel (1,1): a DWM-rounded window has a
+    # transparent corner, and using it as the reference reported a blank window as full ink.
+    $counts = @{}
+    for ($y = 0; $y -lt $bmp.Height; $y += 6) {
+        for ($x = 0; $x -lt $bmp.Width; $x += 6) {
+            $c = $bmp.GetPixel($x, $y)
+            $key = ([int]$c.R -shl 16) -bor ([int]$c.G -shl 8) -bor [int]$c.B
+            if ($counts.ContainsKey($key)) { $counts[$key]++ } else { $counts[$key] = 1 }
+        }
+    }
+    if ($counts.Count -eq 0) { return 0 }
+    $modal = ($counts.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 1).Key
+    $refR = ($modal -shr 16) -band 0xFF; $refG = ($modal -shr 8) -band 0xFF; $refB = $modal -band 0xFF
+
     $differing = 0; $sampled = 0
     for ($y = 0; $y -lt $bmp.Height; $y += 3) {
         for ($x = 0; $x -lt $bmp.Width; $x += 3) {
             $sampled++
             $c = $bmp.GetPixel($x, $y)
-            if ([Math]::Abs($c.R - $reference.R) + [Math]::Abs($c.G - $reference.G) + [Math]::Abs($c.B - $reference.B) -gt 12) { $differing++ }
+            if ([Math]::Abs($c.R - $refR) + [Math]::Abs($c.G - $refG) + [Math]::Abs($c.B - $refB) -gt 12) { $differing++ }
         }
     }
     if ($sampled -eq 0) { return 0 }
@@ -133,17 +172,50 @@ function Measure-Ink([System.Drawing.Bitmap]$bmp) {
 function Save-Shot([IntPtr]$handle, [string]$name) {
     $rect = [IAV]::RectOf($handle)
     if ($rect.Length -eq 0) { Write-Output "   shot $name FAILED (no rect)"; return }
-    $bmp = New-Object System.Drawing.Bitmap($rect[2], $rect[3])
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $hdc = $g.GetHdc()
-    $ok = [IAV]::PrintTo($handle, $hdc)
-    $g.ReleaseHdc($hdc)
-    $g.Dispose()
+    # PrintWindow first, then the screen DC: the screen path is the documented fallback for a
+    # window whose content lives in a Composition content island.
+    $bmp = $null; $ok = $false; $pathUsed = 'PrintWindow'
+    foreach ($mode in 'PrintWindow', 'BitBlt') {
+        $candidate = New-Object System.Drawing.Bitmap($rect[2], $rect[3])
+        $g = [System.Drawing.Graphics]::FromImage($candidate)
+        $hdc = $g.GetHdc()
+        $ok = if ($mode -eq 'PrintWindow') {
+            [IAV]::PrintTo($handle, $hdc)
+        } else {
+            [IAV]::BitBltFromScreen($hdc, $rect[0], $rect[1], $rect[2], $rect[3])
+        }
+        $g.ReleaseHdc($hdc)
+        $g.Dispose()
+        if ($null -ne $bmp) { $bmp.Dispose() }
+        $bmp = $candidate
+        $pathUsed = $mode
+        if ((Measure-Ink $bmp) -ge $script:minInk) { break }
+    }
     $ink = Measure-Ink $bmp
-    $path = Join-Path $OutDir $name
+    # Staging, never $OutDir: the committed docs\*.png must survive a failed run.
+    $path = Join-Path $script:shotStaging $name
     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
-    Write-Output ("   shot {0} {1}x{2} ink={3:P1} PrintWindow={4}" -f $name, $rect[2], $rect[3], $ink, $ok)
+    $script:shots.Add([pscustomobject]@{ Name = $name; Path = $path; Ink = $ink })
+    Write-Output ("   shot {0} {1}x{2} ink={3:P1} {4}={5} → {6}" -f $name, $rect[2], $rect[3], $ink, $pathUsed, $ok, $path)
+}
+
+# The only place that writes $OutDir, and only after every capture passed the blank gate.
+function Publish-Shots {
+    $blank = @($script:shots | Where-Object { $_.Ink -lt $script:minInk })
+    if ($blank.Count -gt 0) {
+        foreach ($shot in $blank) {
+            Write-Output ("   BLANK: {0} ink={1:P1}" -f $shot.Name, $shot.Ink)
+        }
+        Write-Output ("   the captures are kept for diagnosis in {0}; {1} was NOT touched" -f $script:shotStaging, $OutDir)
+        throw ("{0} of {1} captures are blank (ink below {2:P1}); PrintWindow returned nothing" -f `
+            $blank.Count, $script:shots.Count, $script:minInk)
+    }
+    foreach ($shot in $script:shots) {
+        $target = Join-Path $OutDir $shot.Name
+        Copy-Item -LiteralPath $shot.Path -Destination $target -Force
+        Write-Output ("   published {0} → {1}" -f $shot.Name, $target)
+    }
 }
 
 function Find-Ui([IntPtr]$root, [string]$automationId) {
@@ -282,4 +354,7 @@ if (Test-Path $logPath) {
 }
 
 Stop-Shell
+
+Write-Step "publishing the screenshots to $OutDir (blank gate first)"
+Publish-Shots
 Write-Step 'done'

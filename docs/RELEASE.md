@@ -290,7 +290,8 @@ gh release create $tag `
 ### 5.1 CI 发布（`v*` tag 触发 `.github\workflows\release.yml`）
 
 推一个 `v*` tag（或手动 `workflow_dispatch`）就跑完整条流水线：构建 → 测试 → 打包 → 安装器 →
-notes → `update.json` → 上传三个资产 → **把 CI 自己那份 `update.json` 提交回默认分支**。
+notes → `update.json` → 上传三个资产 → **把 CI 自己那份 `update.json` 提交回默认分支** →
+**purge jsDelivr 并回读确认它已在服务这份清单**（§7.1）。
 本地 `publish-release.ps1` 和 CI 用同一套门禁，区别只在「谁上传」和「谁提交清单」。
 
 #### notes 从 CHANGELOG.md 来
@@ -311,7 +312,7 @@ notes → `update.json` → 上传三个资产 → **把 CI 自己那份 `update
 tag 触发 CI 后，CI 重新构建并 `--clobber` 上传了 zip，它生成的清单描述的是 CI 那份字节；仓库里那份
 还指着本地构建的包（`a8d5e3…` vs 线上 `3d5048…`）→ 走加速源的用户下载后校验失败。那次是手工提交修好的。
 
-现在流水线最后一个 step 自己收尾：
+现在流水线自己收尾（提交清单，然后 purge jsDelivr）：
 
 - 用 `github-actions[bot]` 身份提交（`41898282+github-actions[bot]@users.noreply.github.com`）；
 - 只提交 `update.json`（非 alpha 通道是 `update-<channel>.json`），不碰别的文件；
@@ -322,7 +323,9 @@ tag 触发 CI 后，CI 重新构建并 `--clobber` 上传了 zip，它生成的�
 - 在 Release 建好之后才执行，上传失败不会留下「分支指向一个还不存在的资产」；
 - 权限就是现有的 `contents: write`。
 
-> 提交完成后 `gh-proxy` / jsDelivr 有缓存，要等一会儿才生效——§8 的源检查就是等这个。
+> 提交完成后 `gh-proxy` / `ghproxy.net` 是「等一会儿就生效」；**jsDelivr 不是**——它的
+> `@main` 引用不清缓存就一直返回旧字节，提交完必须 purge 再回读（§7.1），CI 里也是紧跟这个
+> step 之后做。§8.2 的源检查比的是内容 sha256，不是状态码。
 
 ### 5.2 清单与线上资产对账（本地发布时）
 
@@ -383,7 +386,7 @@ git push origin main
 > 本地脚本在提交前会先和线上资产对账（§5.2）。两条路都不要手工 `git commit` 一份来路不明的
 > `update.json`——那是 0.1.0-alpha.2 出问题的直接原因。
 
-验证三个代理源都能读到（应当逐条 200，且内容与本地一致）：
+验证三个代理源都能读到（应当逐条 200）：
 
 ```powershell
 foreach ($u in @(
@@ -394,6 +397,71 @@ foreach ($u in @(
   catch { "FAIL $u : $($_.Exception.Message)" }
 }
 ```
+
+> 200 只说明源是活的，**不说明内容是新的**。逐源比内容 sha256 的检查在 §8.2；
+> jsDelivr 那条必须**先 purge 再看**（§7.1），它不会自己好。
+
+### 7.1 jsDelivr 的 `@main` 缓存：必须 purge
+
+`cdn.jsdelivr.net/gh/<owner>/<repo>@<branch>/<file>` 是按**分支引用**缓存的。一次只改
+`update.json` 的提交，raw 和另外两个加速源立刻就是新字节，jsDelivr 还会返回上一次缓存的内容：
+
+> 0.1.0-alpha.2 实测：push 之后 `raw.githubusercontent.com` 和 `gh-proxy.com` 已是新清单，
+> `cdn.jsdelivr.net/gh/YunxiRamito/Performix@main/update.json` 的 sha256 仍是 `a8d5e3e…`，
+> `assets[0]` 也还指向旧包。命中这条源的客户端会拿到「版本号是新的、包是旧的」的清单，
+> 下载完 sha256 硬门禁必然失败。手动 purge 之后才刷新。
+
+提交并 push 根 `update.json` 之后，主动清缓存：
+
+```powershell
+Invoke-WebRequest -UseBasicParsing `
+  'https://purge.jsdelivr.net/gh/YunxiRamito/Performix@main/update.json'
+# 返回 JSON，含 status 与 paths：
+# { "status": "finished",
+#   "paths": { "/gh/YunxiRamito/Performix@main/update.json": { "throttled": false, "providers": { ... } } } }
+```
+
+purge 之后边缘节点还有几秒传播时间，所以要**轮询**，不能请求一次就算完：
+
+```powershell
+# 工作区是 CRLF、仓库 blob 是 LF，先归一化换行再算 sha256，否则必然假失败
+function Get-LfHash([string]$Path) {
+  $full = (Resolve-Path -LiteralPath $Path).Path   # .NET 走的是进程工作目录，不是 PowerShell 的当前位置
+  $t = ([System.IO.File]::ReadAllText($full)) -replace "`r`n", "`n"
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  ([System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($t))) -replace '-','').ToLower()
+}
+
+$url  = 'https://cdn.jsdelivr.net/gh/YunxiRamito/Performix@main/update.json'
+$want = Get-LfHash .\update.json
+for ($i = 1; $i -le 10; $i++) {
+  Start-Sleep -Seconds 3
+  $tmp = Join-Path $env:TEMP 'jsdelivr-update.json'
+  Invoke-WebRequest -UseBasicParsing $url -OutFile $tmp -Headers @{ 'Cache-Control' = 'no-cache' }
+  $got = Get-LfHash $tmp
+  if ($got -eq $want) { "PASS after $i check(s): $got"; break }
+  "poll $i : serves $got"
+}
+```
+
+几个坑：
+
+- **别用查询串绕过缓存来「验证」**：在 CDN 地址后面加 `?v=<时间戳>` 会拿到新鲜内容，看着通过、
+  源里其实还是旧的。要清就 purge，要验就比**内容 sha256**。
+- **比 sha256，别只比版本号**：清单可能带着新版本号却指向旧包，这正是 alpha.2 的故障形态。
+  （哈希对不上时，至少再看一眼 `version` 和 `assets[0].sha256` 是不是都对，别只看版本号。）
+- 本地工作区是 CRLF、仓库 blob 是 LF，直接拿工作区文件跟 CDN 比字节会假失败；
+  归一化换行后内容一致即可（脚本里已经这么比）。
+
+脚本和 CI 都自动做这一步，不需要人手执行上面两段：
+
+| 路径 | 谁做 | 行为 |
+|---|---|---|
+| 本地发布 | `scripts\publish-release.ps1`（§9 之后） | push 根 `update.json` 之后立刻 purge + 轮询（10 次 × 3 秒），比内容 sha256 |
+| CI 发布 | `.github\workflows\release.yml`（回写清单那个 step 之后） | 调 `scripts\publish-release.ps1 -PurgeJsDelivrOnly` 做同一件事 |
+
+超时**不是警告**：最终验收表里 `source jsdelivr-gh` 一行记 `FAIL`，脚本以非 0 退出，
+CI 那个 step 直接抛错。因为这个源的用户是真的坏了，红一下比静默放过好。
 
 ---
 
@@ -410,7 +478,32 @@ foreach ($u in @(
    Remove-Item $tmp
    ```
 
-2. **跑一次命令行检查**（不下载、不安装）：
+2. **清单更新后，三个加速源逐一回读确认内容一致**（状态码 200 不算通过，要比内容 sha256）：
+
+   ```powershell
+   function Get-LfHash([string]$Path) {   # 换行归一化，理由见 §7.1
+     $full = (Resolve-Path -LiteralPath $Path).Path
+     $t = ([System.IO.File]::ReadAllText($full)) -replace "`r`n", "`n"
+     $sha = [System.Security.Cryptography.SHA256]::Create()
+     ([System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($t))) -replace '-','').ToLower()
+   }
+
+   $want = Get-LfHash .\update.json
+   $raw  = 'https://raw.githubusercontent.com/YunxiRamito/Performix/main/update.json'
+   foreach ($u in @($raw,
+                    ('https://gh-proxy.com/' + $raw),
+                    ('https://ghproxy.net/' + $raw))) {
+     $tmp = Join-Path $env:TEMP 'm.json'
+     Invoke-WebRequest -UseBasicParsing $u -OutFile $tmp -Headers @{ 'Cache-Control' = 'no-cache' }
+     "$(if ((Get-LfHash $tmp) -eq $want) { 'PASS' } else { 'FAIL' }) $u"
+   }
+   ```
+
+   **jsDelivr 单列一条，不在上面的循环里**：它不清缓存就一直返回旧字节，必须
+   `purge` → 轮询 → 再比 sha256（§7.1）。它返回 200、版本号也正确，但 `assets[0]` 指向旧包，
+   就是这个源特有的故障形态；只有内容 sha256 对得上才算过。
+
+3. **跑一次命令行检查**（不下载、不安装）：
 
    ```powershell
    $exe = 'src\Performix.App\bin\x64\Release\net10.0-windows10.0.22621.0\win-x64\Performix.exe'
@@ -420,9 +513,9 @@ foreach ($u in @(
    期望输出里 `result : 有新版 / update available`，`source` 是实际命中的源（官方或是某个加速源），
    `version` 等于刚发的版本。同一行命令加 `--update-feed <本地清单>` 可在离线环境复现。
 
-3. **更新页点一遍**：「检查更新 → 下载并安装」。**真机验证只做一次**，确认会退出、替换、重启。
+4. **更新页点一遍**：「检查更新 → 下载并安装」。**真机验证只做一次**，确认会退出、替换、重启。
 
-4. 若 `source` 一直是官方源，说明加速源也通；若只有加速源通，属于预期（客户端已降级）。
+5. 若 `source` 一直是官方源，说明加速源也通；若只有加速源通，属于预期（客户端已降级）。
 
 ---
 

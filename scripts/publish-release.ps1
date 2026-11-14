@@ -20,12 +20,24 @@
         6. commit the same manifest to the default branch                  (section 7)
            The three GitHub proxies (gh-proxy, ghproxy.net, jsDelivr) read that copy; a release
            without it leaves them at 404 and only the official sources work.
-        7. read back: download the release asset and compare sha256 + size, then report which
+        7. purge the jsDelivr cache and poll the CDN until it serves THIS manifest, then report a
+           timeout as a failure, not a warning                              (section 7.1)
+        8. read back: download the release asset and compare sha256 + size, then report which
            sources already serve the new version                           (sections 7 and 8)
 
     Every step is a hard gate: the first failure stops the run and says which step it was.
     Remote steps only run when the local ones succeeded - the order "upload first, then write the
     manifest, then read it back" cannot be reversed (section 0 of the doc).
+
+    JSDELIVR: cdn.jsdelivr.net/gh/<owner>/<repo>@<branch>/<file> is cached per branch reference and
+    does NOT notice a commit that only touches update.json. raw.githubusercontent.com and
+    gh-proxy.com serve the new file the moment the push lands; jsDelivr keeps the previous bytes
+    until the path is purged (https://purge.jsdelivr.net/...), and the purge takes a few more
+    seconds to reach every edge. 0.1.0-alpha.2 shipped that way: jsDelivr kept serving a manifest
+    that pointed at the previous package, so every user on that source downloaded the wrong bytes
+    and failed the sha256 gate. Step 7 purges and then polls until the CDN serves this manifest's
+    sha256 (10 x 3 s); a timeout is reported as FAILED in the final verification and makes the run
+    exit non-zero, because the users on that source are broken even though the release itself is up.
 
     NOTES: -NotesFile, else -Notes, else the CHANGELOG.md section for this version (via
     scripts\get-release-notes.ps1, the same rule the release workflow uses). Never a git log
@@ -86,6 +98,15 @@
     Treat a source that does not serve the new version yet as a failure. Default: such sources
     are reported as warnings (CDN and registry sync are eventually consistent).
 
+    jsDelivr is the exception: a stale jsDelivr copy means that source hands out a manifest for a
+    package that is no longer there, so it is always a failure, with or without this switch.
+
+.PARAMETER PurgeJsDelivrOnly
+    CI helper. Purge the jsDelivr copy of the manifest and wait until it serves it - nothing is
+    built, tagged, committed or uploaded. The workflow writes the manifest and commits it itself
+    (.github\workflows\release.yml), so it calls this mode right after that commit. Exit code 0
+    when the CDN serves the manifest, 1 when it does not.
+
 .PARAMETER DryRun
     Local steps only (same as -WhatIf): build, hashes, manifest, then print the plan.
 
@@ -123,6 +144,8 @@ param(
     [switch]$SkipBuild,
 
     [switch]$StrictVerification,
+
+    [switch]$PurgeJsDelivrOnly,
 
     [Alias('WhatIf')]
     [switch]$DryRun
@@ -332,6 +355,138 @@ function Get-WebText {
     return [string]$response.Content
 }
 
+# sha256 of the text with CRLF folded to LF. The working tree has CRLF (git autocrlf) while the
+# blob jsDelivr serves has LF, so a raw byte comparison would call an identical manifest stale.
+function Get-NormalizedSha256 {
+    param([byte[]]$Bytes)
+    $text = $Utf8NoBom.GetString($Bytes)
+    $normalized = $text -replace "`r`n", "`n"
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha.ComputeHash($Utf8NoBom.GetBytes($normalized))
+    } finally {
+        $sha.Dispose()
+    }
+    return ([System.BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+}
+
+# jsDelivr caches @<branch> references per file and does not notice a commit that only bumps
+# update.json: the CDN keeps serving the previous bytes until the path is purged, and the purge
+# needs a few more seconds to reach every edge (docs\RELEASE.md section 7.1). raw.githubusercontent.com
+# and gh-proxy.com are fresh the moment the push lands, which is exactly why 0.1.0-alpha.2 looked
+# fine on two sources and broken on the third.
+#
+# Purge, then poll the CDN until it serves the manifest this run published (by content sha256, not
+# by the version string: a manifest can carry the new version and the previous package). Returns
+# an object with Verified / Attempts / ServedSha256 / Detail / PurgeUrl / CdnUrl / PurgeStatus.
+function Invoke-JsDelivrPurge {
+    param(
+        [string]$OwnerRepo,
+        [string]$BranchName,
+        [string]$ManifestName,
+        [string]$ExpectedSha256,
+        [string]$ManifestPath,
+        [int]$MaxAttempts = 10,
+        [int]$DelaySeconds = 3
+    )
+
+    $purgeUrl = 'https://purge.jsdelivr.net/gh/' + $OwnerRepo + '@' + $BranchName + '/' + $ManifestName
+    $cdnUrl = 'https://cdn.jsdelivr.net/gh/' + $OwnerRepo + '@' + $BranchName + '/' + $ManifestName
+    # No client-side cache in front of the CDN read: the point is to see what the CDN itself has.
+    $noCache = @{ 'Cache-Control' = 'no-cache'; 'Pragma' = 'no-cache' }
+
+    $expectedLf = $null
+    if (-not [string]::IsNullOrWhiteSpace($ManifestPath) -and (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+        $expectedLf = Get-NormalizedSha256 -Bytes ([System.IO.File]::ReadAllBytes($ManifestPath))
+    }
+
+    $purgeStatus = 'unknown'
+    $purgeDetail = ''
+    Write-Note ('> GET ' + $purgeUrl)
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $purgeUrl -TimeoutSec 60 -Headers $noCache
+        $body = ([string]$response.Content).Trim()
+        $purgeDetail = $body
+        try {
+            $purgeJson = $body | ConvertFrom-Json
+            $statusProp = $purgeJson.PSObject.Properties['status']
+            if ($null -ne $statusProp) { $purgeStatus = [string]$statusProp.Value } else { $purgeStatus = 'answered' }
+        } catch {
+            $purgeStatus = 'unparsed'
+        }
+        Write-Note ('  purge ' + $purgeStatus + ' (HTTP ' + [int]$response.StatusCode + ')')
+    } catch {
+        # A failed purge request is not fatal on its own - the CDN may already be fresh (nothing to
+        # purge). The poll below is the verdict.
+        $purgeStatus = 'request-failed'
+        $purgeDetail = $_.Exception.Message
+        Write-Note ('  purge request failed: ' + $purgeDetail)
+    }
+
+    $verified = $false
+    $attempts = 0
+    $servedSha = ''
+    $detail = 'the CDN was never read'
+    for ($attempt = 1; $attempt -le $MaxAttempts -and -not $verified; $attempt++) {
+        $attempts = $attempt
+        # Wait before the first read: jsDelivr answers "finished" long before every edge has it.
+        Start-Sleep -Seconds $DelaySeconds
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('performix-jsdelivr-' + [guid]::NewGuid().ToString('N') + '.json')
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri $cdnUrl -OutFile $tmp -TimeoutSec 45 -Headers $noCache
+            $servedBytes = [System.IO.File]::ReadAllBytes($tmp)
+            $servedSha = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($servedSha -eq $ExpectedSha256) {
+                $verified = $true
+                $detail = 'sha256 ' + $servedSha
+            } elseif ($null -ne $expectedLf -and (Get-NormalizedSha256 -Bytes $servedBytes) -eq $expectedLf) {
+                # Same content, different line endings: content-identical, so accept it and say so.
+                $verified = $true
+                $detail = 'sha256 ' + $servedSha + ' (content matches after CRLF normalization)'
+            } else {
+                $servedVersion = ''
+                try {
+                    $servedJson = ($Utf8NoBom.GetString($servedBytes)) | ConvertFrom-Json
+                    $versionProp = $servedJson.PSObject.Properties['version']
+                    if ($null -ne $versionProp) { $servedVersion = [string]$versionProp.Value }
+                } catch {
+                    $servedVersion = ''
+                }
+                if ([string]::IsNullOrWhiteSpace($servedVersion)) {
+                    $detail = 'serves sha256 ' + $servedSha
+                } else {
+                    # A manifest can carry the new version and the previous package, so print both:
+                    # "same version, different bytes" is the failure mode this poll exists to catch.
+                    $detail = 'serves sha256 ' + $servedSha + ' (manifest version ' + $servedVersion + ')'
+                }
+            }
+        } catch {
+            $detail = 'read failed: ' + $_.Exception.Message
+        } finally {
+            if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+        }
+        if (-not $verified) {
+            Write-Note ('  poll ' + $attempt + '/' + $MaxAttempts + ': ' + $detail)
+        }
+    }
+    if ($verified) {
+        Write-Note ('  the CDN serves this manifest (' + $detail + ', ' + $attempts + ' check(s))')
+    } else {
+        Write-Note ('  still stale after ' + $attempts + ' check(s): ' + $detail)
+    }
+
+    return [pscustomobject]@{
+        Verified    = $verified
+        Attempts    = $attempts
+        ServedSha256 = $servedSha
+        Detail      = $detail
+        PurgeUrl    = $purgeUrl
+        CdnUrl      = $cdnUrl
+        PurgeStatus = $purgeStatus
+        PurgeDetail = $purgeDetail
+    }
+}
+
 # ==================================================================== 1. arguments
 Write-Step ('release ' + $Version + ' (' + $Channel + ')')
 
@@ -359,6 +514,29 @@ $manifestName = Get-ManifestFileName $Channel
 $manifestPath = Join-Path $ArtifactsDir $manifestName
 $notesPath = Join-Path $ArtifactsDir 'release-notes.md'
 $assetUrl = 'https://github.com/' + $RepositorySlug + '/releases/download/' + $Tag + '/' + $ZipAssetName
+
+# CI helper (step 7, docs\RELEASE.md section 7.1): the workflow commits the manifest itself, so it
+# needs the purge and the read-back without the rest of the run. Nothing is built, tagged, committed
+# or uploaded here - the only network calls are the purge request and the CDN reads. Exit 0 when the
+# CDN serves this manifest, 1 when it does not (a stale jsDelivr copy breaks every user on it).
+if ($PurgeJsDelivrOnly) {
+    Write-Step ('jsDelivr purge for ' + $manifestName + ' on ' + $Branch)
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        Stop-WithMessage ('the manifest is missing: ' + $manifestPath + ' (the workflow writes it in an earlier step)')
+    }
+    $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Note ('manifest ' + $manifestPath + ' (' + $manifestSha + ')')
+    $jsdelivr = Invoke-JsDelivrPurge -OwnerRepo $RepositorySlug -BranchName $Branch -ManifestName $manifestName `
+        -ExpectedSha256 $manifestSha -ManifestPath $manifestPath
+    if (-not $jsdelivr.Verified) {
+        Stop-WithMessage ('cdn.jsdelivr.net still does not serve ' + $manifestName + ' for ' + $Version + ' after ' +
+            $jsdelivr.Attempts + ' check(s): ' + $jsdelivr.Detail + '. ' +
+            'Users on the jsDelivr source get the previous manifest and fail the sha256 gate. ' +
+            'Purge again and re-read: ' + $jsdelivr.PurgeUrl)
+    }
+    Write-Host ('[publish] jsDelivr serves ' + $manifestName + ' for ' + $Version + ' (' + $manifestSha + ')') -ForegroundColor Green
+    exit 0
+}
 
 # Notes: -NotesFile wins when given; an empty note is allowed (the field is optional in the
 # manifest) but the release body would be empty, so say so.
@@ -488,6 +666,9 @@ if ($DryRun) {
     Write-Host ('  git add -- ' + $manifestName + '   (on branch ' + $Branch + ')') -ForegroundColor DarkGray
     Write-Host ('  git commit -m "release: ' + $manifestName + ' for ' + $Version + '" -- ' + $manifestName) -ForegroundColor DarkGray
     Write-Host ('  git push origin ' + $Branch) -ForegroundColor DarkGray
+    Write-Host ('  GET https://purge.jsdelivr.net/gh/' + $RepositorySlug + '@' + $Branch + '/' + $manifestName) -ForegroundColor DarkGray
+    Write-Host ('      then poll https://cdn.jsdelivr.net/gh/' + $RepositorySlug + '@' + $Branch + '/' + $manifestName) -ForegroundColor DarkGray
+    Write-Host ('      until it serves sha256 ' + (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant() + ' (10 x 3 s)') -ForegroundColor DarkGray
     Write-Host ('  download ' + $assetUrl + ' and compare sha256 + size (' + $zipHash + ', ' + $zipSize + ' bytes)') -ForegroundColor DarkGray
     Write-Host '  check gh-proxy / ghproxy.net / jsDelivr serve this version, and that both npm registries answer' -ForegroundColor DarkGray
     Write-Host ''
@@ -597,7 +778,24 @@ if ($diffCode -eq 0) {
     Invoke-Tool -Exe 'git' -Arguments @('push', 'origin', $Branch) | Out-Null
 }
 
-# ==================================================================== 10. read back
+# ==================================================================== 10. jsDelivr purge
+# The push above makes raw.githubusercontent.com and both gh-proxy hosts serve the new file at once.
+# jsDelivr does not: it caches the @<branch> reference per file and keeps the previous bytes until
+# the path is purged, and the purge needs a few more seconds to reach every edge. Poll until the
+# CDN serves THIS manifest's sha256; a timeout is a failure, not a warning - that source hands out
+# a manifest for a package that is no longer there (0.1.0-alpha.2, docs\RELEASE.md section 7.1).
+Write-Step ('purge the jsDelivr cache for @' + $Branch + '/' + $manifestName)
+$manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$jsdelivr = Invoke-JsDelivrPurge -OwnerRepo $RepositorySlug -BranchName $Branch -ManifestName $manifestName `
+    -ExpectedSha256 $manifestSha -ManifestPath $manifestPath
+if (-not $jsdelivr.Verified) {
+    Write-Warn ('cdn.jsdelivr.net still does not serve this ' + $manifestName + ' after ' + $jsdelivr.Attempts +
+        ' check(s): ' + $jsdelivr.Detail + ' (purge: ' + $jsdelivr.PurgeUrl + '). ' +
+        'Users on the jsDelivr source get the previous manifest and fail the sha256 gate.')
+    # Recorded in the verification table below as FAIL, and that makes this run exit non-zero.
+}
+
+# ==================================================================== 11. read back
 Write-Step 'read back the release asset'
 $downloadOk = $false
 $downloadHash = ''
@@ -629,27 +827,53 @@ Write-Note 'asset download matches sha256 and size'
 
 Write-Step 'sources'
 $rawUrl = 'https://raw.githubusercontent.com/' + $RepositorySlug + '/' + $Branch + '/' + $manifestName
+# The two proxies and the raw URL are compared by content sha256, not by the version string: a
+# manifest can carry the new version and the previous package, which is the failure this whole
+# step exists to catch. jsDelivr is checked above (it needs the purge first) and joined in below.
 $sourceChecks = @(
     @{ Id = 'gh-proxy';     Url = ('https://gh-proxy.com/' + $rawUrl) },
     @{ Id = 'ghproxy-net';  Url = ('https://ghproxy.net/' + $rawUrl) },
-    @{ Id = 'jsdelivr-gh';  Url = ('https://cdn.jsdelivr.net/gh/' + $RepositorySlug + '@' + $Branch + '/' + $manifestName) },
     @{ Id = 'github-raw';   Url = $rawUrl }
 )
+$manifestNormalizedSha = Get-NormalizedSha256 -Bytes ([System.IO.File]::ReadAllBytes($manifestPath))
 $sourceResults = @()
 foreach ($check in $sourceChecks) {
     $served = $null
     $detail = ''
     for ($attempt = 1; $attempt -le 4 -and $null -eq $served; $attempt++) {
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('performix-source-' + [guid]::NewGuid().ToString('N') + '.json')
         try {
-            $body = Get-WebText -Url $check.Url -TimeoutSec 45
-            $parsed = $body | ConvertFrom-Json
-            if ($parsed.version -eq $Version) { $served = $true; $detail = $Version } else { $served = $false; $detail = ('serves ' + $parsed.version) }
+            Invoke-WebRequest -UseBasicParsing -Uri $check.Url -OutFile $tmp -TimeoutSec 45 `
+                -Headers @{ 'Cache-Control' = 'no-cache'; 'Pragma' = 'no-cache' }
+            $bytes = [System.IO.File]::ReadAllBytes($tmp)
+            $hash = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($hash -eq $manifestSha) {
+                $served = $true
+                $detail = 'sha256 ' + $hash
+            } elseif ((Get-NormalizedSha256 -Bytes $bytes) -eq $manifestNormalizedSha) {
+                # Same content, different line endings - a proxy that re-serializes with CRLF is fine.
+                $served = $true
+                $detail = 'sha256 ' + $hash + ' (content matches after CRLF normalization)'
+            } else {
+                $parsed = ($Utf8NoBom.GetString($bytes)) | ConvertFrom-Json
+                $served = $false
+                $detail = 'serves sha256 ' + $hash + ' (manifest version ' + $parsed.version + ')'
+            }
         } catch {
             $detail = $_.Exception.Message
-            if ($attempt -lt 4) { Start-Sleep -Seconds 10 }
+        } finally {
+            if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
         }
+        if ($null -eq $served -and $attempt -lt 4) { Start-Sleep -Seconds 10 }
     }
     $sourceResults += [pscustomobject]@{ Id = $check.Id; Served = $served; Detail = $detail }
+}
+# jsDelivr: verdict comes from the purge + poll above, so the table shows what that source really
+# serves now. A stale copy here is a FAIL, never a soft warning - see section 10.
+$sourceResults += [pscustomobject]@{
+    Id     = 'jsdelivr-gh'
+    Served = $jsdelivr.Verified
+    Detail = $jsdelivr.Detail
 }
 
 # npm is the one source family this script does not publish (section 6), so it can legitimately
@@ -682,8 +906,16 @@ Write-Host ('sizeBytes    : ' + $downloadSize + '  (local ' + $zipSize + ')')
 foreach ($r in $sourceResults) {
     $state = 'WARN'
     if ($r.Served -eq $true) { $state = 'PASS' }
+    elseif ($r.Id -eq 'jsdelivr-gh') { $state = 'FAIL' }
     Write-Host ('source ' + $r.Id.PadRight(12) + ': ' + $state + '  ' + $r.Detail)
-    if ($r.Served -ne $true) { $script:Warnings.Add($r.Id + ' does not serve ' + $Version + ' yet (' + $r.Detail + ')') | Out-Null }
+    if ($r.Served -ne $true) {
+        if ($r.Id -eq 'jsdelivr-gh') {
+            # Not a warning: this source hands out a manifest for a package that is no longer there.
+            $script:Failures.Add('jsDelivr serves a stale ' + $manifestName + ' (' + $r.Detail + ')') | Out-Null
+        } else {
+            $script:Warnings.Add($r.Id + ' does not serve ' + $Version + ' yet (' + $r.Detail + ')') | Out-Null
+        }
+    }
 }
 foreach ($r in $registryResults) {
     $state = 'WARN'
@@ -693,13 +925,13 @@ foreach ($r in $registryResults) {
 }
 Write-Host '=====================================================' -ForegroundColor Green
 
-# ==================================================================== 11. summary
+# ==================================================================== 12. summary
 Write-Host ''
 Write-Host ('[publish] ' + $Version + ' released as ' + $Tag + ' (' + $Channel + ')') -ForegroundColor Green
 Write-Host ('[publish] zip   ' + $ZipAssetName + '  ' + $zipSize + ' bytes  ' + $zipHash + '  (what the manifest and the release carry)')
 Write-Host ('[publish] setup ' + $InstallerAssetName + '  ' + $installerSize + ' bytes  ' + $installerHash)
 Write-Host ('[publish] manifest ' + $manifestName + ' (release asset + ' + $Branch + ')')
-Write-Host '[publish] still manual: npm publish (docs\RELEASE.md section 6) and the one real-machine update test (section 8.3)' -ForegroundColor Yellow
+Write-Host '[publish] still manual: npm publish (docs\RELEASE.md section 6) and the one real-machine update test (section 8.4)' -ForegroundColor Yellow
 
 if ($script:Warnings.Count -gt 0) {
     Write-Host ''
@@ -708,5 +940,16 @@ if ($script:Warnings.Count -gt 0) {
     if ($StrictVerification) {
         Stop-WithMessage ('-' + $script:Warnings.Count + ' verification warning(s) and -StrictVerification was given')
     }
+}
+
+# Hard failures, unlike the warnings above: the release exists and the asset is fine, but a source
+# users can select is serving a manifest that points at a different package. Exit non-zero so a
+# scripted release cannot quietly finish on that.
+if ($script:Failures.Count -gt 0) {
+    Write-Host ''
+    Write-Host '[publish] FAILED verification:' -ForegroundColor Red
+    foreach ($f in $script:Failures) { Write-Host ('  - ' + $f) -ForegroundColor Red }
+    Stop-WithMessage ('the release is up but ' + $script:Failures.Count + ' verification check(s) failed (see above). ' +
+        'For jsDelivr: re-run the purge and read the CDN back before announcing (docs\RELEASE.md section 7.1).')
 }
 exit 0

@@ -40,6 +40,12 @@ name: release
 #      step they keep serving whatever was committed last - a manifest describing a different
 #      build - and every accelerated download fails the sha256 gate. That is exactly what broke
 #      0.1.0-alpha.2 (local a8d5e3.../33490261 bytes vs CI 3d5048.../33489786 bytes).
+#   7. purge the jsDelivr cache for that path and wait until cdn.jsdelivr.net serves the new bytes.
+#      jsDelivr caches the @main reference per file: a commit that only bumps update.json is
+#      invisible to it until the path is purged, and the purge takes a few seconds to reach every
+#      edge. Without this step jsDelivr keeps handing out the previous manifest (0.1.0-alpha.2:
+#      sha a8d5e3e long after raw and gh-proxy had the new one) and every user on that source
+#      fails the sha256 gate. docs/RELEASE.md section 7.1.
 #
 # The release always carries THREE assets: the app zip, the amd64 installer and update.json.
 # Only the zip is listed in the manifest's assets[]; the installer is not an update asset.
@@ -320,6 +326,36 @@ jobs:
           Write-Host "committed $manifestName ($env:VERSION) to $branch"
           Write-Host "the proxies read $branch/$manifestName - give the CDNs a minute before checking them"
 
+      # Step 7 of the run (see the header). The push above makes raw.githubusercontent.com and both
+      # gh-proxy hosts serve the new manifest immediately; cdn.jsdelivr.net does not, because it
+      # caches the @main reference per file. Purge, then poll until the CDN serves the sha256 of the
+      # manifest this run published - the same purge + poll a workstation release runs, through the
+      # same script (scripts/publish-release.ps1 -PurgeJsDelivrOnly), so the two paths cannot drift.
+      #
+      # A timeout fails the job on purpose. The release and the branch are already correct at this
+      # point, so a red run is not "the release failed" - it means one of the six update sources
+      # still hands out a manifest for a package that is no longer there. Nothing to do but purge
+      # again and re-read; leaving it green is how 0.1.0-alpha.2 shipped broken.
+      - name: Purge the jsDelivr copy and verify it
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          CHANNEL: ${{ steps.ver.outputs.channel }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          $branch = $env:DEFAULT_BRANCH
+          if ([string]::IsNullOrWhiteSpace($branch)) { $branch = 'main' }
+
+          pwsh -NoProfile -File scripts/publish-release.ps1 `
+            -Version $env:VERSION `
+            -Channel $env:CHANNEL `
+            -Tag "v$env:VERSION" `
+            -Branch $branch `
+            -PurgeJsDelivrOnly
+          if ($LASTEXITCODE -ne 0) {
+            throw "cdn.jsdelivr.net still serves the previous manifest; the jsDelivr source is broken for users until it is purged (docs/RELEASE.md 7.1)"
+          }
+
 # ---------------------------------------------------------------------------------------------
 # NOT done here, on purpose:
 #   * npm publish (docs/RELEASE.md section 6) - needs a registry credential.
@@ -328,4 +364,7 @@ jobs:
 # The manifest commit to the default branch IS done here now (the step above). It used to be
 # left to a workstation run of scripts/publish-release.ps1, which is what let the repository
 # copy and the release asset describe two different builds.
+#
+# The jsDelivr purge after that commit is done here too (the last step). It is a cache eviction,
+# not a publish: a failed purge leaves a correct release that one source serves stale.
 # ---------------------------------------------------------------------------------------------
