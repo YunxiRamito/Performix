@@ -4,15 +4,13 @@
   <img src="assets/brand/performix-app.png" alt="Performix 图标" width="128" height="128">
 </p>
 
-**Performix 是一个给 Windows 游戏笔记本用的小工具。不用再打开厂商那个又大又慢的控制中心,就能直接调风扇、性能模式、键盘灯效和屏幕刷新率。**
+> **⚠️ 早期测试阶段**a
+>
+> 目前只在一台机器上验证过(PH317-55)。如果你用的是别的机型,非常欢迎把适配思路、日志、报错发到 [Issue](https://github.com/YunxiRamito/Performix/issues/new?template=bug_report.yml)——哪怕是「我试了、不行、卡在哪」这种也很有用。
+
+**Performix 是一个给 Windows 游戏笔记本用的控制中心。不用再打开厂商那个又大又慢的控制中心,就能直接调风扇、性能模式、键盘灯效和屏幕刷新率。**
 
 适合想让笔记本更安静、更凉或更能打,又不想在后台装一堆服务的人。目前只适配了一款机型(见[适配列表](#适配列表)),其它型号和品牌正在陆续加入,欢迎你来帮忙。
-
-当前版本:v0.1.0-alpha.2(早期测试版)。
-
-> **⚠️ 早期测试阶段**
->
-> 目前只在一台机器上验证过(PH317-55)。如果你用的是别的机型,非常欢迎把适配思路、日志、报错发到 [Issue](https://github.com/YunxiRamito/Performix/issues/new?template=bug_report.yml)——哪怕是「我试了、不行、卡在哪」这种也很有用。适配问题我会看。
 
 ## 简介
 
