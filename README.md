@@ -14,42 +14,30 @@
 
 ## 简介
 
-Performix 可以帮你:
+Performix 有如下功能：
 
 - **调风扇**:自己设定转速曲线,想安静还是想压温度,由你决定。
 - **切换性能模式**:从省电安静到火力全开,一键切换。
 - **改键盘灯效**:静态、动态灯效都能设置。
 - **换屏幕刷新率**:在省电和流畅之间切换。
 - **随时看状态**:托盘图标和悬浮窗实时显示温度、转速等信息。
-- **开机自动恢复**:你上次调好的设置,开机后会自动用上。
-
-它不会做的事:
-
-- 不改机器的固件,不装驱动,不超频,不破解。
-- 不会自己偷偷联网。只有你在更新页点按钮时才会检查更新,也不会静默自动更新。
+- **高级调教**:可以调整超频选项（实验性）。
 
 想了解它的工作原理?技术文档都放在 [docs](docs/) 文件夹里,从[架构说明](docs/ARCHITECTURE.md)看起即可。
 
 ## 安装教程
 
-安装这一步不用你自己来。下面这段提示词会交给 AI Agent 去做,你只要复制、粘贴、等它跑完。
-
-为什么让 Agent 装:装之前要确认机型、要补一个微软的运行组件、要确认托盘图标真的起来了;出问题还要看日志、判断卡在哪一步——这些对普通用户都太难,对 Agent 只是一次读文件加几条命令。
-
-### 安装方式:把下面这段提示词粘给你的 AI Agent
-
 把下面这一整块复制下来,发给你的 AI Agent(能读文件、能跑命令的那种,Copilot、Claude、Cursor、DeepSeek 都行),然后等它回报结果。
 
 ```text
 帮我在 Windows 11 上装好 Performix。
-
-Performix 是一个给游戏笔记本用的小工具:调风扇、切性能模式、改键盘灯效、换屏幕刷新率,托盘图标看状态。它不改固件、不装驱动、不超频。仓库在 https://github.com/YunxiRamito/Performix
+https://github.com/YunxiRamito/Performix
 
 安装过程你自己走完,别每一步都问我。只有需要管理员权限、或者需要我做一个选择的时候,再停下来问一句。
 
 第一步,先搞清楚要装什么
 1. 读仓库根目录的 README.md,再读 docs/RELEASE.md。弄清这个程序是做什么的、装到哪个目录、有哪些前置条件。
-2. 查我的机器型号,和 README 里的「适配列表」对一下,告诉我这台机器在不在列表里。不在也继续装,但后面出问题要按第五步处理。
+2. 查我的机器型号,和 README 里的「适配列表」对一下,机器在不在列表里也继续装,但后面出问题要按第五步处理。
 
 第二步,准备运行环境
 3. 检查本机有没有 .NET 10 桌面运行时(程序必需,是微软的一个组件)。
@@ -71,7 +59,7 @@ Performix 是一个给游戏笔记本用的小工具:调风扇、切性能模式
 
 第五步,出问题你自己往下查
 12. 如果我的机型不在适配列表里,或者报错、界面空白、读不到温度、切模式没反应:
-    - 先自己看日志,别让我手抄报错。日志有两个地方:程序目录里扩展名为 .log 的文件(和 Performix.exe 同一层),以及 %LOCALAPPDATA%\Performix\logs\(更新相关的是 update.log 和 update-check.log)。
+    - 先自己看日志。日志有两个地方:程序目录里扩展名为 .log 的文件(和 Performix.exe 同一层),以及 %LOCALAPPDATA%\Performix\logs\(更新相关的是 update.log 和 update-check.log)。
     - 自己定位原因。能修的,改完整理成 Pull Request 提到仓库,说明改了什么、为什么这么改、怎么验证的。
     - 修不了的,帮我整理成一条 Issue 提到 https://github.com/YunxiRamito/Performix/issues(表单地址:https://github.com/YunxiRamito/Performix/issues/new?template=bug_report.yml),写清机型、BIOS 版本、Windows 版本、.NET 运行时版本、Performix 版本、什么现象、复现步骤、相关日志、截图。
     - 提交 Issue 或 PR 之前,先把内容给我看一遍,确认里面没有我的账号、序列号、机器名这类私人信息。
@@ -87,12 +75,6 @@ Performix 是一个给游戏笔记本用的小工具:调风扇、切性能模式
 同一份提示词也放在 [docs/INSTALL-WITH-AGENT.md](docs/INSTALL-WITH-AGENT.md),里面还写了为什么建议这么做、Agent 会碰哪些目录。
 
 **不想用 Agent 的话:** 自己打开 [Releases 页面](https://github.com/YunxiRamito/Performix/releases),下载 `PerformixSetup.exe` 双击安装,它会自己把运行时装上。装好的程序在 `%LOCALAPPDATA%\Performix\app\<版本号>\` 下,开始菜单里也能找到。发布流程和这些文件的来龙去脉写在 [docs/RELEASE.md](docs/RELEASE.md)。
-
-## 适配提示词
-
-你的机型不在列表里,或者列表里的机型用着不对劲,请告诉我们。这是目前最能帮到项目的事。
-
-为什么需要你的信息:每台笔记本控制风扇、灯效的方式都不一样,同一个品牌的不同型号也常常不同。硬件指令发错有风险,所以 Performix 不会拿别的机型的做法来「试试看」,每个机型都要靠真机实测。
 
 ### 用着有问题时,请在 Issue 里提供这些信息
 
