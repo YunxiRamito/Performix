@@ -500,7 +500,7 @@ public class InstallerPathsTests
 
         Assert.AreEqual(0, InstallerPaths.SelectVersionsToPrune(folders, keep: 2).Count);
         Assert.AreEqual(0, InstallerPaths.SelectVersionsToPrune(Array.Empty<VersionFolder>()).Count);
-        Assert.AreEqual(0, InstallerPaths.SelectVersionsToPrune(null).Count);
+        Assert.AreEqual(0, InstallerPaths.SelectVersionsToPrune(null!).Count);
     }
 }
 
