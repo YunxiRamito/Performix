@@ -335,6 +335,10 @@ namespace PreySense.Frontend.Services
             }
         }
 
+        // The panel route, read from Win32_VideoController (see GpuDisplayRoute). Kept behind the
+        // hardware seam so the three-mode decision can be tested with a fixed answer.
+        public bool IsDisplayDrivenByIgpu => GpuDisplayRoute.IsDisplayDrivenByIgpu() == true;
+
         public bool IsDdsAvailable => NvidiaDdsService.Instance.IsAvailable;
         public bool IsDdsSupported() => NvidiaDdsService.Instance.IsDdsSupported();
         public DdsStatus? GetDdsStatus() => NvidiaDdsService.Instance.GetStatus();

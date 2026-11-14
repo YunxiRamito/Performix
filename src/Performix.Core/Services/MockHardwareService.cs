@@ -56,7 +56,15 @@ namespace PreySense.Core.Services
 
         public int SetGpuMuxModeCallCount { get; set; }
         public int LastMuxModeSet { get; set; } = -1;
-        public int? GetGpuMuxMode() => LastMuxModeSet >= 0 ? LastMuxModeSet : 1;
+
+        /// <summary>
+        /// false = the firmware reports no hardware MUX (Acer GetGamingMiscSetting(0x02) high
+        /// byte 0xFF → GetGpuMuxMode() returns null). Default true keeps the pre-existing tests
+        /// (which all assume a switchable machine) unchanged.
+        /// </summary>
+        public bool HasFirmwareMux { get; set; } = true;
+
+        public int? GetGpuMuxMode() => HasFirmwareMux ? (LastMuxModeSet >= 0 ? LastMuxModeSet : 1) : null;
         public bool SetGpuMuxMode(int muxMode)
         {
             SetGpuMuxModeCallCount++;
@@ -66,10 +74,14 @@ namespace PreySense.Core.Services
 
         public bool IsBiosDiscreteGpuActive { get; set; } = false;
 
+        /// <summary>True = the mock machine's iGPU drives the panel (a plain Optimus wiring).</summary>
+        public bool IsDisplayDrivenByIgpu { get; set; } = false;
+
         private Gpu.DdsDisplayMode _mockDdsMode = Gpu.DdsDisplayMode.Automatic;
-        public bool IsDdsAvailable => true;
-        public bool IsDdsSupported() => true;
-        public Gpu.DdsStatus? GetDdsStatus() => new Gpu.DdsStatus(
+        public bool IsDdsAvailable { get; set; } = true;
+        public bool DdsSupported { get; set; } = true;
+        public bool IsDdsSupported() => DdsSupported;
+        public Gpu.DdsStatus? GetDdsStatus() => !IsDdsAvailable || !DdsSupported ? null : new Gpu.DdsStatus(
             IsSupported: true,
             IsAutomatic: _mockDdsMode == Gpu.DdsDisplayMode.Automatic,
             ActiveMux: _mockDdsMode == Gpu.DdsDisplayMode.NvidiaGpuOnly ? Gpu.DdsActiveMux.dGPU : Gpu.DdsActiveMux.Optimus,

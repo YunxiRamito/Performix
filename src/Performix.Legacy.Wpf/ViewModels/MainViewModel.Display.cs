@@ -99,6 +99,12 @@ namespace PreySense.Frontend.ViewModels
                 bool biosDiscrete = false;
                 try { biosDiscrete = _hw.IsBiosDiscreteGpuActive; } catch { }
 
+                // The probe is read here (background thread) so the dispatcher half never touches
+                // WMI / nvcpl; the three-mode verdict and the current-mode identification both
+                // come out of this single reading.
+                GpuModeProbe? probe = null;
+                try { probe = ReadGpuModeProbe(biosDiscrete); } catch { }
+
                 DdsStatus? dds = null;
                 if (!biosDiscrete && _hw.IsDdsAvailable && _hw.IsDdsSupported())
                 {
@@ -118,7 +124,7 @@ namespace PreySense.Frontend.ViewModels
                     AppLogger.Error($"Display refresh rate read failed: {ex.Message}");
                 }
 
-                return (biosDiscrete, dds, supportedRates, currentRate);
+                return (biosDiscrete, probe, dds, supportedRates, currentRate);
             });
 
             if (_disposed || Volatile.Read(ref _gpuSwitchInProgress) != 0 ||
@@ -136,7 +142,7 @@ namespace PreySense.Frontend.ViewModels
         }
 
         private void ApplyDisplayAndDdsState(
-            (bool biosDiscrete, DdsStatus? dds, System.Collections.Generic.List<int>? supportedRates, int currentRate) result,
+            (bool biosDiscrete, GpuModeProbe? probe, DdsStatus? dds, System.Collections.Generic.List<int>? supportedRates, int currentRate) result,
             int revision)
         {
             if (_disposed || Volatile.Read(ref _gpuSwitchInProgress) != 0 ||
@@ -144,13 +150,10 @@ namespace PreySense.Frontend.ViewModels
                 return;
 
             IsBiosDiscreteGpuActive = result.biosDiscrete;
-            if (IsBiosDiscreteGpuActive)
-                GpuMuxModeName = "dGPU Only";
-
-            if (result.dds != null)
-            {
+            if (result.probe is { } probe)
+                ApplyGpuModeState(probe, result.dds);
+            else if (result.dds != null)
                 ApplyDdsStatus(result.dds);
-            }
             NotifyGpuSelectionsChanged();
 
             if (result.supportedRates != null && result.supportedRates.Count > 0)

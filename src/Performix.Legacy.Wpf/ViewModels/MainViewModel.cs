@@ -199,8 +199,10 @@ namespace PreySense.Frontend.ViewModels
                 IsHardwareTuningEnabled = false;
             }
 
+            // Nothing has been read yet: the three-mode verdicts are all "unavailable" and the
+            // current mode is unknown until Initialize*Discovery reports the probe.
             ActiveGpuMuxMode = -1;
-            GpuMuxModeName = GetGpuModeName(ActiveGpuMuxMode);
+            GpuMuxModeName = GpuModes.SourceName(null);
 
             LoadCoverLightingSettings();
             LoadRgbSettings();
@@ -245,12 +247,11 @@ namespace PreySense.Frontend.ViewModels
         {
             try
             {
-                if (_hw.IsDdsAvailable && _hw.IsDdsSupported() && _hw.GetDdsStatus() is { IsSupported: true } status)
-                {
-                    ApplyDdsStatus(status);
-                    GpuMuxModeName = GetGpuModeName(ActiveGpuMuxMode);
-                    NotifyGpuSelectionsChanged();
-                }
+                IsBiosDiscreteGpuActive = _hw.IsBiosDiscreteGpuActive;
+                DdsStatus? status = null;
+                if (_hw.IsDdsAvailable && _hw.IsDdsSupported())
+                    status = _hw.GetDdsStatus();
+                ApplyGpuModeState(ReadGpuModeProbe(IsBiosDiscreteGpuActive), status);
             }
             catch (Exception ex) { AppLogger.Log($"Mock DDS discovery failed: {ex.Message}"); }
             try { IsBiosDiscreteGpuActive = _hw.IsBiosDiscreteGpuActive; } catch (Exception ex) { AppLogger.Log($"BIOS discrete-GPU state read failed: {ex.Message}"); }
@@ -264,25 +265,30 @@ namespace PreySense.Frontend.ViewModels
             {
                 DdsStatus? liveDdsStatus = null;
                 bool? biosDiscrete = null;
+                GpuModeProbe? probe = null;
                 System.Collections.Generic.List<int>? rates = null;
                 int refreshRate = 0;
                 try
                 {
                     using var gpuLease = HardwareOperationGate.TryEnterTelemetry();
-                    if (gpuLease != null && _hw.IsDdsAvailable && _hw.IsDdsSupported())
+                    if (gpuLease != null)
                     {
-                        liveDdsStatus = _hw.GetDdsStatus();
+                        bool discrete = _hw.IsBiosDiscreteGpuActive;
+                        biosDiscrete = discrete;
+                        probe = ReadGpuModeProbe(discrete);
+                        if (!discrete && probe.Value.DdsAvailable && probe.Value.DdsSupported)
+                            liveDdsStatus = _hw.GetDdsStatus();
                     }
                 }
                 catch (Exception ex) { AppLogger.Log($"DDS status read failed: {ex.Message}"); }
-                try { biosDiscrete = _hw.IsBiosDiscreteGpuActive; } catch (Exception ex) { AppLogger.Log($"BIOS discrete-GPU state read failed: {ex.Message}"); }
+                try { biosDiscrete ??= _hw.IsBiosDiscreteGpuActive; } catch (Exception ex) { AppLogger.Log($"BIOS discrete-GPU state read failed: {ex.Message}"); }
                 try
                 {
                     rates = _hw.GetSupportedRefreshRates();
                     refreshRate = _hw.GetDisplayRefreshRate();
                 }
                 catch (Exception ex) { AppLogger.Log($"Refresh-rate discovery failed: {ex.Message}"); }
-                return (liveDdsStatus, biosDiscrete, rates, refreshRate);
+                return (liveDdsStatus, biosDiscrete, probe, rates, refreshRate);
             });
 
             if (_disposed) return;
@@ -291,8 +297,11 @@ namespace PreySense.Frontend.ViewModels
                 if (_disposed || revision != Volatile.Read(ref _gpuDisplayRevision)) return;
                 if (result.biosDiscrete.HasValue)
                     IsBiosDiscreteGpuActive = result.biosDiscrete.Value;
-                if (IsBiosDiscreteGpuActive) GpuMuxModeName = "dGPU Only";
-                else ApplyDdsStatus(result.liveDdsStatus);
+                // A null probe means the display gate was held by a switch, so no facts were read;
+                // leaving the previous verdict alone beats overwriting it with "everything is
+                // unavailable".
+                if (result.probe is { } probe)
+                    ApplyGpuModeState(probe, result.liveDdsStatus);
                 ApplyRefreshRateOptions(result.rates, result.refreshRate);
             });
 

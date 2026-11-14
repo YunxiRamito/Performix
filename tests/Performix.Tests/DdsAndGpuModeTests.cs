@@ -82,9 +82,13 @@ namespace PreySense.Tests
             var hw = new MockHardwareService();
             var vm = new PreySense.Frontend.ViewModels.MainViewModel(hw);
 
-            // Initial state: set to Automatic (1) to ensure deterministic test baseline regardless of host user registry
+            // Initial state: set to Automatic (1) to ensure deterministic test baseline regardless of host user registry.
+            // The home panel now names modes by what the user sees (Hybrid / Integrated / dGPU Only):
+            // DDS "Automatic" and DDS "Optimus" are both the hybrid wiring, which is why
+            // ActiveGpuMuxMode still carries the DDS-era number for the WPF shell.
             await vm.SetGpuMuxModeAsync(1);
-            Assert.AreEqual("Automatic", vm.GpuMuxModeName);
+            Assert.AreEqual("Hybrid", vm.GpuMuxModeName);
+            Assert.IsTrue(vm.IsGpuHybridModeActive);
             Assert.IsTrue(vm.IsGpuAutoActive);
             Assert.IsFalse(vm.IsGpuOptimusActive);
             Assert.IsFalse(vm.IsGpuNvidiaOnlyActive);
@@ -99,7 +103,8 @@ namespace PreySense.Tests
             // Switch to Optimus (0)
             await vm.SetGpuMuxModeAsync(0);
             Assert.AreEqual(0, vm.ActiveGpuMuxMode);
-            Assert.AreEqual("Optimus", vm.GpuMuxModeName);
+            Assert.AreEqual("Hybrid", vm.GpuMuxModeName);
+            Assert.IsTrue(vm.IsGpuHybridModeActive);
             Assert.IsTrue(vm.IsGpuOptimusActive);
             Assert.IsFalse(vm.IsGpuAutoActive);
             Assert.IsFalse(vm.IsGpuNvidiaOnlyActive);
@@ -110,7 +115,8 @@ namespace PreySense.Tests
             // Switch to Auto (1)
             await vm.SetGpuMuxModeAsync("1");
             Assert.AreEqual(1, vm.ActiveGpuMuxMode);
-            Assert.AreEqual("Automatic", vm.GpuMuxModeName);
+            Assert.AreEqual("Hybrid", vm.GpuMuxModeName);
+            Assert.IsTrue(vm.IsGpuHybridModeActive);
             Assert.IsTrue(vm.IsGpuAutoActive);
             Assert.IsFalse(vm.IsGpuOptimusActive);
             Assert.IsFalse(vm.IsGpuNvidiaOnlyActive);
@@ -121,8 +127,10 @@ namespace PreySense.Tests
             // Switch to NVIDIA GPU Only (2)
             await vm.SetGpuMuxModeAsync(2);
             Assert.AreEqual(2, vm.ActiveGpuMuxMode);
-            Assert.AreEqual("NVIDIA GPU Only", vm.GpuMuxModeName);
+            Assert.AreEqual("dGPU Only", vm.GpuMuxModeName);
+            Assert.IsTrue(vm.IsGpuDiscreteModeActive);
             Assert.IsTrue(vm.IsGpuNvidiaOnlyActive);
+            Assert.IsFalse(vm.IsGpuHybridModeActive);
             Assert.IsFalse(vm.IsGpuAutoActive);
             Assert.IsFalse(vm.IsGpuOptimusActive);
             CollectionAssert.Contains(changedProps, nameof(vm.IsGpuNvidiaOnlyActive));

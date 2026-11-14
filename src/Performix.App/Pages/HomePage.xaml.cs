@@ -46,12 +46,17 @@ namespace Predex.WinUI.Pages
             Predex.WinUI.Services.AppearanceService.UiPanelsChanged += OnUiPanelsChanged;
             ApplyInterfacePanels();
 
-            // --trace evidence for the integration pass: GPU mux state is read on a background
+            // --trace evidence for the integration pass: GPU mode state is read on a background
             // task, so "no tile selected" can simply mean "state not known yet / DDS unavailable"
-            // rather than a broken binding. Log whatever the ViewModel actually has at load.
+            // rather than a broken binding. Log whatever the ViewModel actually has at load,
+            // including the three-mode verdicts and the evidence behind the current reading.
             Predex.WinUI.Services.ShellLog.Write("home",
                 $"loaded expanded={_isExpanded} muxMode={ViewModel.ActiveGpuMuxMode} ({ViewModel.GpuMuxModeName}) " +
-                $"showDdsTiles={ViewModel.ShowDdsGpuTiles} biosDiscrete={ViewModel.IsBiosDiscreteGpuActive}");
+                $"showDdsTiles={ViewModel.ShowDdsGpuTiles} biosDiscrete={ViewModel.IsBiosDiscreteGpuActive} " +
+                $"gpuModes hybrid={ViewModel.IsGpuHybridModeAvailable} " +
+                $"integrated={ViewModel.IsGpuIntegratedModeAvailable} " +
+                $"discrete={ViewModel.IsGpuDiscreteModeAvailable} " +
+                $"current={ViewModel.GpuMuxModeName} basis={ViewModel.GpuModeBasisToken}");
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -201,8 +206,8 @@ namespace Predex.WinUI.Pages
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName is nameof(MainViewModel.ShowDdsGpuTiles) or nameof(MainViewModel.IsBiosDiscreteGpuActive))
-                UpdateGpuTileLayout();
+            // The GPU row is a fixed three-column layout, so no property drives a re-flow here:
+            // each tile's IsEnabled / tooltip / selected state comes straight from x:Bind.
 
             // One line of evidence per run: prove CPU and GPU fan come from separate properties
             // (a review flagged "both 4109 RPM" as a possible double binding).
@@ -217,21 +222,28 @@ namespace Predex.WinUI.Pages
         }
 
         /// <summary>
-        /// The WPF build swaps the GPU tile UniformGrid between 4 and 2 columns. A Grid
-        /// cannot change its column count per state, so the two tiles that stay visible span
-        /// two columns each when the DDS tiles are hidden.
+        /// The GPU row is a fixed three-column layout: one tile per mode, and a mode this machine
+        /// cannot do is disabled in place (greyed + reason in its tooltip), never hidden. There is
+        /// nothing left to re-flow, so this re-asserts the placement and records the capability
+        /// set once per load — the log line is what tells "this chassis cannot do it" apart from
+        /// "the binding broke".
         /// </summary>
         private void UpdateGpuTileLayout()
         {
-            bool showDds = ViewModel.ShowDdsGpuTiles;
-            GpuHybridTile.Visibility = showDds ? Visibility.Visible : Visibility.Collapsed;
-            GpuAdvancedTile.Visibility = showDds ? Visibility.Visible : Visibility.Collapsed;
+            Grid.SetColumn(GpuHybridTile, 0);
+            Grid.SetColumn(GpuIntegratedTile, 1);
+            Grid.SetColumn(GpuDiscreteTile, 2);
 
-            Grid.SetColumn(GpuAutoTile, 0);
-            Grid.SetColumnSpan(GpuAutoTile, showDds ? 1 : 2);
-            Grid.SetColumn(GpuDiscreteTile, showDds ? 3 : 2);
-            Grid.SetColumnSpan(GpuDiscreteTile, showDds ? 1 : 2);
+            Predex.WinUI.Services.ShellLog.Write("home",
+                $"gpu tiles columns=3 " +
+                $"hybrid={Describe(ViewModel.GpuCapabilities.Hybrid)} " +
+                $"integrated={Describe(ViewModel.GpuCapabilities.Integrated)} " +
+                $"discrete={Describe(ViewModel.GpuCapabilities.Discrete)}");
         }
+
+        /// <summary>One tile's verdict as log text: available, or which blocker disabled it.</summary>
+        private static string Describe(PreySense.Gpu.GpuModeAvailability availability) =>
+            availability.IsAvailable ? "on" : $"off({availability.Blocker})";
 
         // ── Entry points into the other pages ────────────────────────────────────
         private void LightingShortcut_Click(object sender, RoutedEventArgs e)

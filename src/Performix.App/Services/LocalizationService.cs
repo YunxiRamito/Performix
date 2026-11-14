@@ -209,6 +209,20 @@ namespace PreySense.Frontend.Services
                     ["zh-CN"] = "狂暴", ["hi-IN"] = "बीस्ट", ["es-ES"] = "Bestia", ["fr-FR"] = "Bête",
                 },
 
+                // ── Home → GPU mode: the three modes (R4 rework) ───────────────────────
+                // The row used to offer four tiles (Auto / Hybrid / Advanced Optimus / dGPU Only);
+                // two of them were the same hardware state under different NVIDIA names. The three
+                // that remain answer one question — which GPU drives the panel — and the English
+                // source strings stay Hybrid / Integrated / dGPU Only while the zh rows say
+                // 混合模式 / 核显模式 / 独显直连.
+                //
+                // Only zh-CN is overridden on purpose: the other four languages keep UiText's
+                // existing rows for Hybrid and dGPU Only (Híbrido / dGPU seul / …), and a missing
+                // language here falls through to UiText instead of showing English.
+                ["Hybrid"] = new(StringComparer.Ordinal) { ["zh-CN"] = "混合模式" },
+                ["Integrated"] = new(StringComparer.Ordinal) { ["zh-CN"] = "核显模式" },
+                ["dGPU Only"] = new(StringComparer.Ordinal) { ["zh-CN"] = "独显直连" },
+
                 // ── Theme page (appearance / window style / material / accent) ─────────
                 // Chinese only on purpose: the other four languages fall back to the English
                 // source through Translate() (UiText has no row, WinUIStrings is not used for
@@ -610,6 +624,29 @@ namespace PreySense.Frontend.Services
             ["EPP preference (0 perf - 100 power)"] = "能效偏好（0 性能 – 100 节能）",
             ["EPP preference"] = "能效偏好",
             ["GPU mode is not readable on this hardware (no MUX / DDS)."] = "此硬件不支持独显直连（无 MUX / DDS），GPU 模式不可读。",
+
+            // ── Home → GPU mode: tile tooltips ──────────────────────────────────────
+            // The tile itself carries icon + name only (UI-DESIGN-RULES §7). These sentences are
+            // the tooltip / HelpText: what the mode does when it is selectable, and why the tile
+            // is disabled when it is not (§7.2 exception 3 — a greyed control must say why).
+            // The ViewModel produces the English source strings (ViewModels\MainViewModel.Gpu.cs,
+            // class GpuModeText) and the page runs them through Loc.T.
+            ["The integrated GPU drives the display; the discrete GPU renders for apps that ask for it."] =
+                "显示由核显输出，独显在应用需要时参与渲染。",
+            ["Only the integrated GPU is used; the discrete GPU is switched off."] =
+                "只使用核显，独显关闭。",
+            ["The display is wired straight to the discrete GPU."] =
+                "显示直接由独显输出。",
+            ["This machine has no GPU switching hardware (MUX), so only Hybrid mode is available."] =
+                "这台机器没有显卡切换硬件（MUX），只能用混合模式。",
+            ["No NVIDIA or firmware API on this machine exposes an integrated-GPU-only mode, so it is not supported in this version."] =
+                "本机的 NVIDIA 与固件接口都没有提供「仅核显」模式，此版本不支持。",
+            ["This machine does not report a hybrid display path, so Hybrid mode cannot be selected."] =
+                "本机没有报告混合显示通路，无法选择混合模式。",
+            ["The machine booted straight into dGPU-only mode, so no integrated GPU can drive the display."] =
+                "机器以独显直连方式启动，没有核显可以输出显示。",
+            ["This GPU mode is not available on this machine."] =
+                "本机不支持这个 GPU 模式。",
             ["Core parking min (%)"] = "核心驻留下限 (%)",
             ["Core parking max (%)"] = "核心驻留上限 (%)",
             ["Core clock offset (MHz)"] = "核心频率偏移 (MHz)",

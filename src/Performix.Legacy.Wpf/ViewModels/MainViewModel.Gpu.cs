@@ -91,8 +91,14 @@ namespace PreySense.Frontend.ViewModels
         [NotifyPropertyChangedFor(nameof(IsGpuStandardActive))]
         [NotifyPropertyChangedFor(nameof(IsGpuUltimateActive))]
         [NotifyPropertyChangedFor(nameof(IsGpuAdvancedOptimusActive))]
-        private int _activeGpuMuxMode = -1; // 0 = Optimus (iGPU), 1 = Automatic (Auto DDS), 2 = NVIDIA GPU Only (dGPU)
-        [ObservableProperty] private string _gpuMuxModeName = "N/A";
+        // 0 = Optimus (iGPU), 1 = Automatic (Auto DDS), 2 = NVIDIA GPU Only (dGPU), -1 = unknown.
+        // Legacy DDS-era value: the three-mode panel reads IsGpuHybrid/Integrated/DiscreteModeActive
+        // instead. It is still derived (see LegacyMuxMode) because the WPF shell keys its four-tile
+        // grid off it and the older tests assert on it.
+        private int _activeGpuMuxMode = -1;
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(GpuModeDisplayName))]
+        private string _gpuMuxModeName = "N/A";
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsGpuEnduranceActive))]
         [NotifyPropertyChangedFor(nameof(IsGpuStandardActive))]
@@ -105,8 +111,61 @@ namespace PreySense.Frontend.ViewModels
         [NotifyPropertyChangedFor(nameof(ShowDdsGpuTiles))]
         private bool _isBiosDiscreteGpuActive;
 
+        // ── Three-mode capability layer ──────────────────────────────────────────
+        // The panel asks one question: which GPU drives the panel. The verdict is a pure
+        // function of six probe booleans (Core\Gpu\GpuModeCapabilities.cs); this file only
+        // supplies them and exposes the results. Measured on the reference PH317-55:
+        // no hardware MUX (Acer GetGamingMiscSetting(0x02) = 0xFF00), DDS reports supported=0,
+        // the panel is driven by the iGPU — so exactly one mode is selectable: Hybrid.
+        private GpuModeProbe _gpuProbe = GpuModeProbe.Unknown;
+        private GpuModeCapabilities? _gpuCapabilities;
+        private GpuModeKind? _currentGpuMode;
+        private string _currentGpuModeBasis = GpuModeBasis.Unknown;
+        private string? _lastLoggedGpuModeLine;
+
+        // Lazily evaluated so a ViewModel created without its constructor (the test doubles do
+        // that) still answers with "nothing is available" instead of a null reference.
+        private GpuModeCapabilities Capabilities => _gpuCapabilities ??= GpuModes.Evaluate(_gpuProbe);
+
+        /// <summary>The verdicts for this machine (hybrid / integrated / discrete).</summary>
+        public GpuModeCapabilities GpuCapabilities => Capabilities;
+
+        /// <summary>Evidence token behind the current reading (see <see cref="GpuModeBasis"/>).</summary>
+        public string GpuModeBasisToken => _currentGpuModeBasis;
+
+        // Which tile is selected right now.
+        public bool IsGpuHybridModeActive => _currentGpuMode == GpuModeKind.Hybrid;
+        public bool IsGpuIntegratedModeActive => _currentGpuMode == GpuModeKind.Integrated;
+        public bool IsGpuDiscreteModeActive => _currentGpuMode == GpuModeKind.Discrete;
+
+        // Whether this machine can enter each mode. False greys the tile out and puts the reason
+        // in its tooltip; a mode is never hidden, because a hidden tile reads as "the app forgot
+        // to draw it" while a disabled one reads as "this machine cannot do that".
+        public bool IsGpuHybridModeAvailable => Capabilities.Hybrid.IsAvailable;
+        public bool IsGpuIntegratedModeAvailable => Capabilities.Integrated.IsAvailable;
+        public bool IsGpuDiscreteModeAvailable => Capabilities.Discrete.IsAvailable;
+
+        public string GpuHybridModeToolTip => GpuModeText.TileToolTip(Capabilities.Hybrid);
+        public string GpuIntegratedModeToolTip => GpuModeText.TileToolTip(Capabilities.Integrated);
+        public string GpuDiscreteModeToolTip => GpuModeText.TileToolTip(Capabilities.Discrete);
+
+        /// <summary>
+        /// The current mode, localized. "N/A" (nothing could be read at all) is still mapped to
+        /// the em dash by the XAML converter, per docs\UI-DESIGN-RULES §5.
+        /// </summary>
+        public string GpuModeDisplayName => LocalizationService.Translate(GpuMuxModeName);
+
+        /// <summary>
+        /// Tooltip of the header readout: the same sentence the selected tile carries, so the two
+        /// never disagree; only when nothing could be read does it say so instead.
+        /// </summary>
+        public string GpuModeDisplayToolTip => _currentGpuMode is { } mode
+            ? LocalizationService.Translate(GpuModeText.TileToolTip(Capabilities.For(mode)))
+            : LocalizationService.Translate("GPU mode is not readable on this hardware (no MUX / DDS).");
+
         public bool ShowDdsGpuTiles => !IsBiosDiscreteGpuActive;
         public int GpuModeTileColumns => IsBiosDiscreteGpuActive ? 2 : 4;
+
 
         // GPU selection flags (0=Optimus, 1=Automatic, 2=NVIDIA Only)
         public bool IsGpuEnduranceActive => !IsBiosDiscreteGpuActive && ActiveGpuMuxMode == 0;
@@ -118,8 +177,30 @@ namespace PreySense.Frontend.ViewModels
         public bool IsGpuAdvancedOptimusActive => ActiveGpuMuxMode == 2 && !IsBiosDiscreteGpuActive;
         partial void OnIsBiosDiscreteGpuActiveChanged(bool value)
         {
+            _gpuProbe = _gpuProbe with { BiosDiscreteGpuOnly = value };
             if (value)
-                GpuMuxModeName = "dGPU Only";
+                GpuMuxModeName = GpuModes.SourceName(GpuModeKind.Discrete);
+        }
+
+        /// <summary>
+        /// Reads the six facts the three-mode decision needs. Every read is individually guarded:
+        /// one broken provider must not cost the user the whole panel, it only removes the
+        /// evidence for that one mode.
+        /// </summary>
+        private GpuModeProbe ReadGpuModeProbe(bool biosDiscrete)
+        {
+            bool mux = false, ddsAvailable = false, ddsSupported = false, displayIgpu = false;
+            try { mux = HasFirmwareMuxSupport(); } catch { }
+            try { ddsAvailable = _hw.IsDdsAvailable; } catch { }
+            try { ddsSupported = ddsAvailable && _hw.IsDdsSupported(); } catch { }
+            try { displayIgpu = _hw.IsDisplayDrivenByIgpu; } catch { }
+            return new GpuModeProbe(
+                HasHardwareMux: mux,
+                DdsAvailable: ddsAvailable,
+                DdsSupported: ddsSupported,
+                DisplayDrivenByIgpu: displayIgpu,
+                BiosDiscreteGpuOnly: biosDiscrete,
+                IgpuOnlyPathExposed: GpuModes.IgpuOnlyPathExposed);
         }
 
         private async Task RefreshGpuModeStateAsync(bool duringSwitch = false)
@@ -130,16 +211,20 @@ namespace PreySense.Frontend.ViewModels
             var state = await Task.Run(() =>
             {
                 bool biosDiscrete = _hw.IsBiosDiscreteGpuActive;
-                return (biosDiscrete, dds: biosDiscrete ? null : _hw.GetDdsStatus());
+                GpuModeProbe probe = ReadGpuModeProbe(biosDiscrete);
+                DdsStatus? dds = null;
+                if (!biosDiscrete && probe.DdsAvailable)
+                {
+                    try { dds = _hw.GetDdsStatus(); } catch { }
+                }
+                return (biosDiscrete, probe, dds);
             });
             if (_disposed) return;
             await _dispatcher.InvokeAsync(() =>
             {
                 if (_disposed || revision != System.Threading.Volatile.Read(ref _gpuDisplayRevision)) return;
                 IsBiosDiscreteGpuActive = state.biosDiscrete;
-                if (state.biosDiscrete) GpuMuxModeName = "dGPU Only";
-                ApplyDdsStatus(state.dds);
-                NotifyGpuSelectionsChanged();
+                ApplyGpuModeState(state.probe, state.dds);
             });
         }
 
@@ -154,28 +239,87 @@ namespace PreySense.Frontend.ViewModels
             OnPropertyChanged(nameof(IsGpuAutoActive));
             OnPropertyChanged(nameof(IsGpuNvidiaOnlyActive));
             OnPropertyChanged(nameof(IsGpuAdvancedOptimusActive));
+            // Three-mode panel
+            OnPropertyChanged(nameof(GpuCapabilities));
+            OnPropertyChanged(nameof(GpuModeBasisToken));
+            OnPropertyChanged(nameof(IsGpuHybridModeActive));
+            OnPropertyChanged(nameof(IsGpuIntegratedModeActive));
+            OnPropertyChanged(nameof(IsGpuDiscreteModeActive));
+            OnPropertyChanged(nameof(IsGpuHybridModeAvailable));
+            OnPropertyChanged(nameof(IsGpuIntegratedModeAvailable));
+            OnPropertyChanged(nameof(IsGpuDiscreteModeAvailable));
+            OnPropertyChanged(nameof(GpuHybridModeToolTip));
+            OnPropertyChanged(nameof(GpuIntegratedModeToolTip));
+            OnPropertyChanged(nameof(GpuDiscreteModeToolTip));
+            OnPropertyChanged(nameof(GpuModeDisplayName));
+            OnPropertyChanged(nameof(GpuModeDisplayToolTip));
         }
 
-        private void ApplyDdsStatus(DdsStatus? status)
+        /// <summary>
+        /// Applies a probe + DDS reading: recomputes the three verdicts, identifies the mode the
+        /// machine is in, and writes the evidence into the log (which is the only way to tell
+        /// "this chassis cannot do it" from "the read failed" after the fact).
+        /// </summary>
+        private void ApplyGpuModeState(GpuModeProbe probe, DdsStatus? dds)
         {
-            if (IsBiosDiscreteGpuActive) return;
-            ActiveGpuMuxMode = status switch
+            _gpuProbe = probe;
+            _gpuCapabilities = GpuModes.Evaluate(probe);
+            GpuModeIdentification identification = GpuModes.Identify(probe, dds);
+            _currentGpuMode = identification.Mode;
+            _currentGpuModeBasis = identification.Basis;
+
+            ActiveGpuMuxMode = LegacyMuxMode(identification.Mode, dds);
+            GpuMuxModeName = GpuModes.SourceName(identification.Mode);
+
+            GpuModeCapabilities caps = Capabilities;
+            // AppLogger.Log() only persists lines that look like failures (Logging\AppLogger.cs),
+            // so a status line has to go through Error() to survive — the same call the pipe
+            // status line uses. A repeat with an unchanged verdict is dropped, otherwise a
+            // device-change storm would fill debug.log with identical rows.
+            string line =
+                "GPU modes: " +
+                $"mux={probe.HasHardwareMux} ddsAvailable={probe.DdsAvailable} ddsSupported={probe.DdsSupported} " +
+                $"displayIgpu={probe.DisplayDrivenByIgpu} biosDiscrete={probe.BiosDiscreteGpuOnly} → " +
+                $"hybrid={caps.Hybrid.IsAvailable}/{caps.Hybrid.Blocker} " +
+                $"integrated={caps.Integrated.IsAvailable}/{caps.Integrated.Blocker} " +
+                $"discrete={caps.Discrete.IsAvailable}/{caps.Discrete.Blocker} " +
+                $"current={GpuModes.SourceName(identification.Mode)} ({identification.Basis})";
+            if (line != _lastLoggedGpuModeLine)
             {
-                { IsSupported: true, KmdResponse: 0, IsAutomatic: true } => 1,
-                { IsSupported: true, KmdResponse: 0, ActiveMux: DdsActiveMux.dGPU } => 2,
-                { IsSupported: true, KmdResponse: 0, ActiveMux: DdsActiveMux.Optimus } => 0,
-                _ => -1
-            };
-            GpuMuxModeName = GetGpuModeName(ActiveGpuMuxMode);
+                _lastLoggedGpuModeLine = line;
+                AppLogger.Error(line);
+            }
+
             NotifyGpuSelectionsChanged();
         }
 
-        private static string GetGpuModeName(int mode) => mode switch
+        /// <summary>
+        /// Re-derives the mode from a driver reading using the probe already on file. This is the
+        /// single entry point for "the driver state changed" (and the one the tests drive).
+        /// </summary>
+        private void ApplyDdsStatus(DdsStatus? status) => ApplyGpuModeState(_gpuProbe, status);
+
+        /// <summary>
+        /// Translates the three-mode reading back into the DDS-era number (0 Optimus, 1 Automatic,
+        /// 2 dGPU, -1 unknown) that the WPF shell and the older tests still key off.
+        /// </summary>
+        private static int LegacyMuxMode(GpuModeKind? mode, DdsStatus? dds) => mode switch
         {
-            2 => "NVIDIA GPU Only",
-            1 => "Automatic",
-            0 => "Optimus",
-            _ => "N/A"
+            GpuModeKind.Discrete => 2,
+            GpuModeKind.Hybrid => dds?.IsAutomatic == true ? 1 : 0,
+            _ => -1
+        };
+
+        /// <summary>
+        /// Name of a DDS request value for the progress messages. 1 is DDS "Automatic", which is
+        /// not a tile any more (the panel only offers Hybrid / Integrated / dGPU), so it keeps its
+        /// own name instead of borrowing a tile label.
+        /// </summary>
+        private static string DdsTargetName(int muxVal) => muxVal switch
+        {
+            (int)DdsDisplayMode.NvidiaGpuOnly => GpuModes.SourceName(GpuModeKind.Discrete),
+            (int)DdsDisplayMode.Automatic => "Automatic",
+            _ => GpuModes.SourceName(GpuModeKind.Hybrid)
         };
 
         private static void SaveGpuModePreference(int mode)
@@ -215,10 +359,38 @@ namespace PreySense.Frontend.ViewModels
             {
                 if (muxVal == 1)
                     await SetBiosGpuModeAsync(PreySense.Helpers.AcerWmi.GpuMux.Automatic, "Would you like to switch to Auto and restart now?", "Performix • Auto", " • Auto");
+                else
+                    // Leaving dGPU-only is a firmware switch; the tile must say so instead of
+                    // doing nothing when the machine cannot go there.
+                    DiagnosticMessage = LocalizationService.Translate(GpuModeText.BlockerMessage(GpuModeBlocker.BiosDiscreteOnly));
+                return;
+            }
+
+            // The hybrid tile is the only one that reaches this command from the home panel.
+            // A disabled tile cannot be clicked, so this guard is for the keyboard/automation
+            // path: it answers with the reason rather than swallowing the press.
+            if (muxVal == (int)DdsDisplayMode.Optimus && !IsGpuHybridModeAvailable)
+            {
+                DiagnosticMessage = LocalizationService.Translate(
+                    GpuModeText.BlockerMessage(Capabilities.Hybrid.Blocker));
                 return;
             }
 
             await ApplyGpuMuxModeCoreAsync(muxVal, persistPreference: true);
+        }
+
+        /// <summary>
+        /// The integrated-GPU-only tile. There is no implementation path in this build: nvcpl's
+        /// DDS status (0x17) reports Optimus / Automatic / dGPU only, and the Acer MUX offers
+        /// Optimus / Discrete / Automatic — neither can turn the dGPU off. Reporting "switched"
+        /// would be a fake feature, so the command says what is missing.
+        /// </summary>
+        [RelayCommand]
+        public void SetIntegratedGpuMode()
+        {
+            DiagnosticMessage = LocalizationService.Translate(
+                GpuModeText.BlockerMessage(GpuModeBlocker.NoIgpuOnlyPath));
+            AppLogger.Log("GPU modes: integrated (iGPU only) requested but no API exposes that state on this build.");
         }
 
         private async Task ApplyGpuMuxModeCoreAsync(int muxVal, bool persistPreference)
@@ -229,7 +401,7 @@ namespace PreySense.Frontend.ViewModels
                 return;
             }
             System.Threading.Interlocked.Increment(ref _gpuDisplayRevision);
-            DiagnosticMessage = $"Switching GPU mode to {GetGpuModeName(muxVal)}...";
+            DiagnosticMessage = $"Switching GPU mode to {DdsTargetName(muxVal)}...";
             IsBusy = true;
             try
             {
@@ -247,7 +419,7 @@ namespace PreySense.Frontend.ViewModels
                     // to the Optimus base or COMMIT an unchanged live driver preference.
                     ApplyDdsStatus(current);
                     if (persistPreference) SaveGpuModePreference(muxVal);
-                    DiagnosticMessage = $"GPU mode already set to {GetGpuModeName(muxVal)}.";
+                    DiagnosticMessage = $"GPU mode already set to {DdsTargetName(muxVal)}.";
                     return;
                 }
                 var prevRenderMode = System.Windows.Media.RenderOptions.ProcessRenderMode;
@@ -282,9 +454,11 @@ namespace PreySense.Frontend.ViewModels
                     }
                     // Adapter handles acquired before re-enable may still be invalid.
                     await Task.Run(_hw.RefreshGpuAdapter);
+                    // The panel moved: re-read which adapter owns it before the next identification.
+                    GpuDisplayRoute.Invalidate();
                     if (persistPreference)
                         SaveGpuModePreference(muxVal);
-                    DiagnosticMessage = $"GPU mode set to {GetGpuModeName(muxVal)}.";
+                    DiagnosticMessage = $"GPU mode set to {DdsTargetName(muxVal)}.";
                     var display = await Task.Run(() => (_hw.GetSupportedRefreshRates(), _hw.GetDisplayRefreshRate()));
                     ApplyRefreshRateOptions(display.Item1, display.Item2);
                 }
@@ -312,6 +486,7 @@ namespace PreySense.Frontend.ViewModels
                 using (await HardwareOperationGate.EnterDisplaySwitchAsync())
                 {
                     (ok, msg) = await Task.Run(() => _hw.RestartDiscreteGpu());
+                    GpuDisplayRoute.Invalidate();
                     await RefreshGpuModeStateAsync(duringSwitch: true);
                 }
                 DiagnosticMessage = msg;
@@ -336,12 +511,20 @@ namespace PreySense.Frontend.ViewModels
         public async Task SetBiosDiscreteGpuAsync()
         {
             if (IsBiosDiscreteGpuActive)
-                return;
-
-            if (!HasFirmwareMuxSupport())
             {
-                DiagnosticMessage = Services.LocalizationService.Translate(
-                    "This firmware does not support a discrete-GPU MUX (no Advanced Optimus) — GPU mode cannot be switched.");
+                // Not silent: the tile is already the selected one, and a press that does
+                // nothing reads as a broken button.
+                DiagnosticMessage = LocalizationService.Translate(
+                    GpuModeText.BlockerMessage(GpuModeBlocker.BiosDiscreteOnly));
+                return;
+            }
+
+            // The verdict comes from the capability layer, not from a second ad-hoc MUX probe:
+            // "no MUX" and "dGPU direct is unavailable" must never disagree on screen.
+            if (!IsGpuDiscreteModeAvailable)
+            {
+                DiagnosticMessage = LocalizationService.Translate(
+                    GpuModeText.BlockerMessage(Capabilities.Discrete.Blocker));
                 return;
             }
 
@@ -399,5 +582,41 @@ namespace PreySense.Frontend.ViewModels
         }
 
 
+    }
+
+    /// <summary>
+    /// The sentences the three GPU tiles and their commands use, as English source strings only.
+    /// The WinUI shell renders them through Loc.T (the zh-CN rows live in the shell's
+    /// LocalizationService); the ViewModel runs them through LocalizationService.Translate where it
+    /// has to produce a DiagnosticMessage. One sentence per blocker, so the tooltip of a disabled
+    /// tile and the message after pressing it can never drift apart.
+    /// </summary>
+    internal static class GpuModeText
+    {
+        public static string TileToolTip(GpuModeAvailability availability) => availability.IsAvailable
+            ? availability.Kind switch
+            {
+                GpuModeKind.Hybrid =>
+                    "The integrated GPU drives the display; the discrete GPU renders for apps that ask for it.",
+                GpuModeKind.Integrated =>
+                    "Only the integrated GPU is used; the discrete GPU is switched off.",
+                _ =>
+                    "The display is wired straight to the discrete GPU."
+            }
+            : BlockerMessage(availability.Blocker);
+
+        public static string BlockerMessage(GpuModeBlocker blocker) => blocker switch
+        {
+            GpuModeBlocker.NoHardwareMux =>
+                "This machine has no GPU switching hardware (MUX), so only Hybrid mode is available.",
+            GpuModeBlocker.NoIgpuOnlyPath =>
+                "No NVIDIA or firmware API on this machine exposes an integrated-GPU-only mode, so it is not supported in this version.",
+            GpuModeBlocker.NoHybridPath =>
+                "This machine does not report a hybrid display path, so Hybrid mode cannot be selected.",
+            GpuModeBlocker.BiosDiscreteOnly =>
+                "The machine booted straight into dGPU-only mode, so no integrated GPU can drive the display.",
+            _ =>
+                "This GPU mode is not available on this machine."
+        };
     }
 }

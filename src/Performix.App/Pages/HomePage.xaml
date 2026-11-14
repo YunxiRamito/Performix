@@ -174,73 +174,73 @@
           <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('GPU Mode')}"
                      Style="{StaticResource SectionTitleStyle}"
                      AutomationProperties.AutomationId="TxtGpuModeHeader"/>
-          <!-- R4 bug 1: GpuMuxModeName is "N/A" when the DDS/MUX read failed (this box has no
-               switchable MUX: ActiveGpuMuxMode = -1). Per UI-DESIGN-RULES §5 a missing reading
-               is an em dash, never "N/A" — Converters.Telemetry does exactly that mapping. -->
+          <!-- R4 bug 1 + the three-mode rework: the value used to read "N/A" whenever DDS was
+               missing, even on a machine whose panel is plainly driven by the iGPU. The ViewModel
+               now identifies a plain Optimus wiring as Hybrid, so "—" genuinely means "nothing
+               could be read". Converters.Telemetry maps N/A to the em dash (UI-DESIGN-RULES §5). -->
           <TextBlock Grid.Column="1"
-                     Text="{x:Bind local:Converters.Telemetry(ViewModel.GpuMuxModeName), Mode=OneWay}"
+                     Text="{x:Bind local:Converters.Telemetry(ViewModel.GpuModeDisplayName), Mode=OneWay}"
                      Style="{StaticResource CaptionTextStyle}" HorizontalAlignment="Right"
-                     ToolTipService.ToolTip="{x:Bind local:Loc.T('GPU mode is not readable on this hardware (no MUX / DDS).')}"
+                     ToolTipService.ToolTip="{x:Bind local:Loc.T(ViewModel.GpuModeDisplayToolTip), Mode=OneWay}"
                      AutomationProperties.AutomationId="TxtGpuModeValue"/>
         </Grid>
 
-        <!-- GPU MODE: 4 items, one even division of the same content box as the 5-up rows.
-             UpdateGpuTileLayout() spans two columns each when the DDS tiles are hidden. -->
+        <!-- GPU MODE: three tiles, one per state the panel can be in — Hybrid (the iGPU drives the
+             panel and the dGPU renders for apps that ask), Integrated (iGPU only) and dGPU Only
+             (the panel is wired straight to the discrete GPU). The old row had four, two of which
+             were the same hardware state under different NVIDIA names.
+
+             A mode this machine cannot enter stays VISIBLE but DISABLED: the existing
+             ModeTileButtonStyle Disabled state dims it, and the reason lives in
+             ToolTipService.ToolTip + AutomationProperties.HelpText (UI-DESIGN-RULES §7.2
+             exception 3 — a greyed control has to say why). Hiding the tile instead would read as
+             "the app forgot to draw it". -->
         <Grid x:Name="GpuGroup" Height="44" ColumnSpacing="{StaticResource GapTight}">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
 
-          <Button x:Name="GpuAutoTile" Grid.Column="0" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuAutoActive, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+          <Button x:Name="GpuHybridTile" Grid.Column="0" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuHybridModeActive, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
                   Height="44" Padding="4,4"
-                  Command="{x:Bind ViewModel.SetGpuMuxModeCommand}" CommandParameter="1"
-                  AutomationProperties.AutomationId="BtnGpuAuto"
-                  AutomationProperties.Name="{x:Bind local:Loc.T('Auto')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Auto')}">
-            <StackPanel Style="{StaticResource ModeTileStackStyle}">
-              <FontIcon Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuAutoActive, 'ModeTileIconSelectedStyle', 'ModeTileIconStyle'), Mode=OneWay}" Glyph="&#xE7E8;"/>
-              <TextBlock Text="{x:Bind local:Loc.T('Auto')}" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuAutoActive, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
-            </StackPanel>
-          </Button>
-
-          <Button x:Name="GpuHybridTile" Grid.Column="1" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuOptimusActive, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
-                  Height="44" Padding="4,4"
-                  Visibility="{x:Bind local:Converters.BoolToVis(ViewModel.ShowDdsGpuTiles), Mode=OneWay}"
+                  IsEnabled="{x:Bind ViewModel.IsGpuHybridModeAvailable, Mode=OneWay}"
                   Command="{x:Bind ViewModel.SetGpuMuxModeCommand}" CommandParameter="0"
                   AutomationProperties.AutomationId="BtnGpuHybrid"
                   AutomationProperties.Name="{x:Bind local:Loc.T('Hybrid')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Hybrid')}">
+                  AutomationProperties.HelpText="{x:Bind local:Loc.T(ViewModel.GpuHybridModeToolTip), Mode=OneWay}"
+                  ToolTipService.ToolTip="{x:Bind local:Loc.T(ViewModel.GpuHybridModeToolTip), Mode=OneWay}">
             <StackPanel Style="{StaticResource ModeTileStackStyle}">
-              <FontIcon Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuOptimusActive, 'ModeTileIconSelectedStyle', 'ModeTileIconStyle'), Mode=OneWay}" Glyph="&#xE977;"/>
-              <TextBlock Text="{x:Bind local:Loc.T('Hybrid')}" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuOptimusActive, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+              <FontIcon Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuHybridModeActive, 'ModeTileIconSelectedStyle', 'ModeTileIconStyle'), Mode=OneWay}" Glyph="&#xE977;"/>
+              <TextBlock Text="{x:Bind local:Loc.T('Hybrid')}" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuHybridModeActive, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
             </StackPanel>
           </Button>
 
-          <Button x:Name="GpuAdvancedTile" Grid.Column="2" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuAdvancedOptimusActive, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+          <Button x:Name="GpuIntegratedTile" Grid.Column="1" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuIntegratedModeActive, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
                   Height="44" Padding="4,4"
-                  Visibility="{x:Bind local:Converters.BoolToVis(ViewModel.ShowDdsGpuTiles), Mode=OneWay}"
-                  Command="{x:Bind ViewModel.SetGpuMuxModeCommand}" CommandParameter="2"
-                  AutomationProperties.AutomationId="BtnGpuAdvanced"
-                  AutomationProperties.Name="{x:Bind local:Loc.T('Advanced Optimus')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('Advanced Optimus')}">
+                  IsEnabled="{x:Bind ViewModel.IsGpuIntegratedModeAvailable, Mode=OneWay}"
+                  Command="{x:Bind ViewModel.SetIntegratedGpuModeCommand}"
+                  AutomationProperties.AutomationId="BtnGpuIntegrated"
+                  AutomationProperties.Name="{x:Bind local:Loc.T('Integrated')}"
+                  AutomationProperties.HelpText="{x:Bind local:Loc.T(ViewModel.GpuIntegratedModeToolTip), Mode=OneWay}"
+                  ToolTipService.ToolTip="{x:Bind local:Loc.T(ViewModel.GpuIntegratedModeToolTip), Mode=OneWay}">
             <StackPanel Style="{StaticResource ModeTileStackStyle}">
-              <FontIcon Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuAdvancedOptimusActive, 'ModeTileIconSelectedStyle', 'ModeTileIconStyle'), Mode=OneWay}" Glyph="&#xE895;"/>
-              <TextBlock Text="{x:Bind local:Loc.T('Adv')}" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuAdvancedOptimusActive, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+              <FontIcon Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuIntegratedModeActive, 'ModeTileIconSelectedStyle', 'ModeTileIconStyle'), Mode=OneWay}" Glyph="&#xE950;"/>
+              <TextBlock Text="{x:Bind local:Loc.T('Integrated')}" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuIntegratedModeActive, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
             </StackPanel>
           </Button>
 
-          <Button x:Name="GpuDiscreteTile" Grid.Column="3" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsBiosDiscreteGpuActive, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
+          <Button x:Name="GpuDiscreteTile" Grid.Column="2" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuDiscreteModeActive, 'ModeTileButtonSelectedStyle', 'ModeTileButtonStyle'), Mode=OneWay}"
                   Height="44" Padding="4,4"
+                  IsEnabled="{x:Bind ViewModel.IsGpuDiscreteModeAvailable, Mode=OneWay}"
                   Command="{x:Bind ViewModel.SetBiosDiscreteGpuCommand}"
                   AutomationProperties.AutomationId="BtnGpuDiscrete"
                   AutomationProperties.Name="{x:Bind local:Loc.T('dGPU Only')}"
-                  ToolTipService.ToolTip="{x:Bind local:Loc.T('dGPU Only')}">
+                  AutomationProperties.HelpText="{x:Bind local:Loc.T(ViewModel.GpuDiscreteModeToolTip), Mode=OneWay}"
+                  ToolTipService.ToolTip="{x:Bind local:Loc.T(ViewModel.GpuDiscreteModeToolTip), Mode=OneWay}">
             <StackPanel Style="{StaticResource ModeTileStackStyle}">
-              <FontIcon Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsBiosDiscreteGpuActive, 'ModeTileIconSelectedStyle', 'ModeTileIconStyle'), Mode=OneWay}" Glyph="&#xE912;"/>
-              <TextBlock Text="{x:Bind local:Loc.T('dGPU')}" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsBiosDiscreteGpuActive, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
+              <FontIcon Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuDiscreteModeActive, 'ModeTileIconSelectedStyle', 'ModeTileIconStyle'), Mode=OneWay}" Glyph="&#xE912;"/>
+              <TextBlock Text="{x:Bind local:Loc.T('dGPU Only')}" Style="{x:Bind local:Converters.BoolToStyle(ViewModel.IsGpuDiscreteModeActive, 'ModeTileLabelSelectedStyle', 'ModeTileLabelStyle'), Mode=OneWay}"/>
             </StackPanel>
           </Button>
         </Grid>

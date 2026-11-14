@@ -54,6 +54,11 @@ namespace PreySense.Core.Services
         bool SetGpuMuxMode(int muxMode);
         bool IsBiosDiscreteGpuActive { get; }
 
+        // Display routing: true when the integrated GPU is the adapter with a live display mode.
+        // This is the only hybrid-path evidence available on a machine with neither a MUX nor
+        // DDS (see Gpu.GpuDisplayRoute), so the three-mode decision reads it.
+        bool IsDisplayDrivenByIgpu => Gpu.GpuDisplayRoute.IsDisplayDrivenByIgpu() == true;
+
         // NVIDIA Advanced Optimus (Dynamic Display Switch / DDS - Reboot-Free)
         bool IsDdsAvailable { get; }
         void RefreshGpuAdapter() { }
