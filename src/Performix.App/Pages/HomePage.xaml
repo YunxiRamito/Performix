@@ -14,9 +14,11 @@
       accent-coloured only while active. The per-mode rainbow icons (green/cyan/blue/pink/
       purple) are gone: pink read as "danger" on 高级/独显 and made the selected blue shout
       less. Icons are #A8A8BC when idle.
-    * the expanded telemetry row shows fan RPM only. CPU/GPU temperature already sits in the
-      40 DIP title bar (that is deliberate, the collapsed state has no other place for it);
-      repeating it here wasted width on a 320 DIP window.
+    * the expanded telemetry row is a configurable single line (Personalisation → Interface →
+      Status bar): temperature / usage / frequency / fan RPM, CPU and GPU, each switchable.
+      The CPU / GPU temperature in the 40 DIP title bar stays — that is the only place the
+      collapsed state has for it. The row still defaults to the two numbers it used to show
+      (fan RPM), and it never wraps: it is one 14 DIP line, ellipsis-trimmed per column.
     * the refresh-rate "Auto" chip is labelled "Auto refresh" / 自动刷新 so it cannot be
       confused with the GPU-mode "Auto" tile right above it.
 
@@ -134,30 +136,51 @@
       <StackPanel x:Name="ExpandedArea" Visibility="Collapsed"
                   Spacing="{StaticResource GapTight}">
 
-        <!-- Live fan telemetry (real EC readings through IHardwareService).
-             Temperatures stay in the title bar — showing them here too duplicated the data.
+        <!-- Live telemetry (real readings through TelemetryCoordinator → the shared snapshot).
+             Personalisation → Interface → Status bar decides WHICH fields this one line carries
+             (temperature / usage / frequency / fan RPM, each for CPU and GPU); the two device
+             labels are fixed and the value run is built in HomePage.xaml.cs. A field the machine
+             cannot read prints "—" (UI-DESIGN-RULES §5) instead of vanishing, so "no sensor" and
+             "switch off" stay distinguishable.
+
+             WIDTH DISCIPLINE (320 DIP window, 296 DIP content): one line, never a second row —
+             the expanded density is a fixed 300 DIP and there is no ScrollViewer under it. Each
+             device column is a label + a star-sized value that trims with an ellipsis, and the
+             untruncated reading lives in the tooltip. The compact units (°, %, G/M, plain RPM)
+             are what keeps all four fields inside one column at that width.
+
              No Margin: the parent's Spacing already gives this row the same 6 DIP above and
              below as every other group in the expanded area. -->
-        <Grid x:Name="TelemetryRow" Height="14">
+        <Grid x:Name="TelemetryRow" Height="14" ColumnSpacing="{StaticResource GapTight}">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
-          <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+
+          <Grid ColumnSpacing="{StaticResource GapInline}" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
             <TextBlock Text="CPU" Style="{StaticResource CaptionTextStyle}"/>
-            <TextBlock Text="{x:Bind local:Converters.Telemetry(ViewModel.CpuFanText), Mode=OneWay}"
+            <TextBlock x:Name="TxtStatusCpu" Grid.Column="1" Text="—"
                        Style="{StaticResource StatusTextStyle}"
-                       ToolTipService.ToolTip="{x:Bind local:Loc.T('CPU Fan')}"
-                       AutomationProperties.AutomationId="TxtHomeCpuFan"/>
-          </StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
-                      HorizontalAlignment="Right" VerticalAlignment="Center">
+                       MaxLines="1" TextTrimming="CharacterEllipsis"
+                       AutomationProperties.AutomationId="TxtHomeCpuStatus"/>
+          </Grid>
+
+          <Grid Grid.Column="1" ColumnSpacing="{StaticResource GapInline}"
+                VerticalAlignment="Center" HorizontalAlignment="Right">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
             <TextBlock Text="GPU" Style="{StaticResource CaptionTextStyle}"/>
-            <TextBlock Text="{x:Bind local:Converters.Telemetry(ViewModel.GpuFanText), Mode=OneWay}"
+            <TextBlock x:Name="TxtStatusGpu" Grid.Column="1" Text="—"
                        Style="{StaticResource StatusTextStyle}"
-                       ToolTipService.ToolTip="{x:Bind local:Loc.T('GPU Fan')}"
-                       AutomationProperties.AutomationId="TxtHomeGpuFan"/>
-          </StackPanel>
+                       MaxLines="1" TextTrimming="CharacterEllipsis"
+                       AutomationProperties.AutomationId="TxtHomeGpuStatus"/>
+          </Grid>
         </Grid>
 
         <Border x:Name="RuleStatusBar" Height="1" Background="{StaticResource BorderSubtleBrush}"/>

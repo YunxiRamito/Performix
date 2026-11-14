@@ -13,10 +13,16 @@
 
   Card 2 · Interface  Four switches over the rows of the expanded home panel:
 
-                        Status bar        HomePage.TelemetryRow  (CPU / GPU fan RPM, read only)
+                        Status bar        HomePage.TelemetryRow  (the read-only telemetry line)
                         GPU bar           HomePage.GpuHeaderRow + GpuGroup
                         Refresh rate bar  HomePage.DisplayGroup (auto-refresh + Hz + mode)
                         Widget bar        the lighting / HUD / fans / tuning entries
+
+                      Under "Status bar" sit its four fields — Temperature / Usage / Frequency /
+                      Fan speed — each one an independent CheckBox: they decide what that single
+                      14 DIP line prints (CPU and GPU alike), not whether it exists. A field the
+                      machine cannot read still renders "—" (UI-DESIGN-RULES §5), so none of them
+                      is greyed out; all four are backed by the shared telemetry snapshot.
 
                       Every one of them is wired: AppearanceService.SetUiPanel writes the flag
                       into appearance.json (the file the appearance controls already own) and
@@ -89,6 +95,18 @@
       <Setter Property="FontSize" Value="11"/>
       <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
       <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <!-- The four status-bar fields. A CheckBox, not a ToggleSwitch: they are fields of one row,
+         not four more rows, and the switch column above is reserved for the row switches.
+         28 DIP high so the hit target still passes UI-DESIGN-RULES §8 #14. -->
+    <Style x:Key="StatusFieldCheckStyle" TargetType="CheckBox">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+      <Setter Property="UseSystemFocusVisuals" Value="False"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
     <Style x:Key="ThemeTileCaptionStyle" TargetType="TextBlock">
@@ -383,7 +401,7 @@
                       ToolTipService.ToolTip="{x:Bind local:Loc.T('Rows of the expanded panel. Each switch hides its row immediately and is remembered.')}"/>
           </Grid>
 
-          <!-- Status bar: the read-only fan RPM row of the expanded panel. -->
+          <!-- Status bar: the read-only telemetry line of the expanded panel. -->
           <Grid Style="{StaticResource SettingRowStyle}" Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
@@ -400,7 +418,54 @@
                           Toggled="UiStatusBar_Toggled"
                           AutomationProperties.AutomationId="ChkUiStatusBar"
                           AutomationProperties.Name="{x:Bind local:Loc.T('Status bar')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('The read-only CPU / GPU fan readout row.')}"/>
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('The read-only CPU / GPU telemetry row.')}"/>
+          </Grid>
+
+          <!-- Which fields that line prints. Names only (UI-DESIGN-RULES §7): the indentation
+               says they belong to the row above, and the row's own switch says whether the row
+               exists at all. Two columns keep the four names on two lines at 320 DIP; a single
+               row of four would wrap mid-name. -->
+          <Grid Margin="12,4,0,0" ColumnSpacing="{StaticResource GapTight}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <CheckBox x:Name="ChkStatusTemperature" Grid.Row="0" Grid.Column="0"
+                      Style="{StaticResource StatusFieldCheckStyle}"
+                      Tag="StatusBarTemperature"
+                      Content="{x:Bind local:Loc.T('Temperature')}"
+                      Checked="StatusField_Changed" Unchecked="StatusField_Changed"
+                      AutomationProperties.AutomationId="ChkStatusTemperature"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Temperature')}"/>
+
+            <CheckBox x:Name="ChkStatusUsage" Grid.Row="0" Grid.Column="1"
+                      Style="{StaticResource StatusFieldCheckStyle}"
+                      Tag="StatusBarUsage"
+                      Content="{x:Bind local:Loc.T('Usage')}"
+                      Checked="StatusField_Changed" Unchecked="StatusField_Changed"
+                      AutomationProperties.AutomationId="ChkStatusUsage"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Usage')}"/>
+
+            <CheckBox x:Name="ChkStatusFrequency" Grid.Row="1" Grid.Column="0"
+                      Style="{StaticResource StatusFieldCheckStyle}"
+                      Tag="StatusBarFrequency"
+                      Content="{x:Bind local:Loc.T('Frequency')}"
+                      Checked="StatusField_Changed" Unchecked="StatusField_Changed"
+                      AutomationProperties.AutomationId="ChkStatusFrequency"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Frequency')}"/>
+
+            <CheckBox x:Name="ChkStatusFan" Grid.Row="1" Grid.Column="1"
+                      Style="{StaticResource StatusFieldCheckStyle}"
+                      Tag="StatusBarFan"
+                      Content="{x:Bind local:Loc.T('Fan speed')}"
+                      Checked="StatusField_Changed" Unchecked="StatusField_Changed"
+                      AutomationProperties.AutomationId="ChkStatusFan"
+                      AutomationProperties.Name="{x:Bind local:Loc.T('Fan speed')}"/>
           </Grid>
 
           <!-- GPU bar: GPU mode header + the four tiles. -->

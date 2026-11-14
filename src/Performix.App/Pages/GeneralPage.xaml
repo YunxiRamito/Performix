@@ -15,11 +15,18 @@
                                      did not ask for a feature to be removed)
 
   HONESTY RULES
-    • Always on Top and Special Key Wake exist in the design but NOT in the code: the shell is
-      a tray panel that hides when it loses focus (so "topmost" has no meaning yet), and the
-      Predator / mode keys are fixed in KeyboardHookService / AcerHotkeyWatcher with no setting
-      behind them. Both rows are therefore disabled with the reason written on the row — never
-      a live switch that does nothing (docs\design\UI-ARCH.md §4.1.1 / §4.1.2).
+    • Always on Top and Special Key Wake are real switches now (they used to be disabled rows
+      saying "not available"). What they do:
+        Always on Top     OverlappedPresenter.IsAlwaysOnTop on the shell window, and while it is
+                          on the panel stops hiding itself when it loses focus — the auto-hide
+                          is what made "topmost" meaningless before (ShellWindow
+                          .ApplyAlwaysOnTop + WindowBehaviorPolicy).
+        Special Key Wake  the Predator key (scan code E0 75, KeyboardHookService) summons the
+                          panel from any app; off drops that summon. The chassis mode key
+                          (ACPI-WMI APGeEvent) changes the power mode and never opened the
+                          window, so this switch does not pretend to cover it.
+      Both persist to preysense.json (General.AlwaysOnTop / General.SpecialKeyWake) and are
+      applied at startup, so a restart keeps them (Services\WindowBehaviorSettings.cs).
     • The design's AC entry "restore the original configuration" is not offered either:
       Session.AcPowerMode only accepts the five profile bytes (Core folder, not editable from
       this stage), so there is no state to store for it. Five profiles are shown for both
@@ -52,7 +59,7 @@
                 VerticalScrollBarVisibility="Auto">
     <StackPanel Spacing="4" MaxWidth="640" HorizontalAlignment="Stretch">
 
-      <!-- ═══ CARD 1 · LANGUAGE / STARTUP / TWO UNIMPLEMENTED SWITCHES ═══ -->
+      <!-- ═══ CARD 1 · LANGUAGE / STARTUP / WINDOW BEHAVIOUR ═══ -->
       <Border Style="{StaticResource CardStyle}">
         <StackPanel Spacing="0">
 
@@ -117,54 +124,62 @@
                           AutomationProperties.HelpText="{x:Bind local:Loc.T('Starts Performix when Windows starts, so fan curves and lighting are already in effect.')}"/>
           </Grid>
 
-          <!-- ── Always on Top — disabled, with the reason on the row ──────── -->
+          <!-- ── Always on Top ─────────────────────────────────────────────── -->
           <Grid Style="{StaticResource SettingRowStyle}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="132"/>
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
               <TextBlock Text="{x:Bind local:Loc.T('Always on Top')}"
                          Style="{StaticResource SettingLabelStyle}"/>
-              <TextBlock Text="{x:Bind local:Loc.T('Not available in this version.')}"
-                         Style="{StaticResource SettingHintStyle}"
-                         AutomationProperties.AutomationId="TxtAlwaysOnTopHint"/>
-            </StackPanel>
+              <FontIcon Grid.Column="1"
+                        Style="{StaticResource SettingHelpGlyphStyle}"
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('Keeps the panel above other windows, and it stays open when you click another window.')}"/>
+            </Grid>
 
-            <ToggleSwitch Grid.Column="1"
+            <ToggleSwitch x:Name="ChkAlwaysOnTop" Grid.Column="1"
                           Style="{StaticResource SettingSwitchStyle}"
-                          IsEnabled="False"
                           OnContent="{x:Bind local:Loc.T('On')}"
                           OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="AlwaysOnTop_Toggled"
                           AutomationProperties.AutomationId="ChkAlwaysOnTop"
                           AutomationProperties.Name="{x:Bind local:Loc.T('Always on Top')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Not available in this version.')}"/>
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Keeps the panel above other windows, and it stays open when you click another window.')}"/>
           </Grid>
 
-          <!-- ── Special Key Wake — disabled, with the reason on the row ───── -->
+          <!-- ── Special Key Wake ──────────────────────────────────────────── -->
           <Grid Style="{StaticResource SettingRowStyle}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="132"/>
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+            <Grid Grid.Column="0" ColumnSpacing="4" VerticalAlignment="Center">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
               <TextBlock Text="{x:Bind local:Loc.T('Special Key Wake')}"
                          Style="{StaticResource SettingLabelStyle}"/>
-              <TextBlock Text="{x:Bind local:Loc.T('Not available in this version.')}"
-                         Style="{StaticResource SettingHintStyle}"
-                         AutomationProperties.AutomationId="TxtSpecialKeyHint"/>
-            </StackPanel>
+              <FontIcon Grid.Column="1"
+                        Style="{StaticResource SettingHelpGlyphStyle}"
+                        ToolTipService.ToolTip="{x:Bind local:Loc.T('The Predator key opens the panel from any app. Off leaves the key without that action.')}"/>
+            </Grid>
 
-            <ToggleSwitch Grid.Column="1"
+            <ToggleSwitch x:Name="ChkSpecialKeyWake" Grid.Column="1"
                           Style="{StaticResource SettingSwitchStyle}"
-                          IsEnabled="False"
                           OnContent="{x:Bind local:Loc.T('On')}"
                           OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="SpecialKeyWake_Toggled"
                           AutomationProperties.AutomationId="ChkSpecialKeyWake"
                           AutomationProperties.Name="{x:Bind local:Loc.T('Special Key Wake')}"
-                          AutomationProperties.HelpText="{x:Bind local:Loc.T('Not available in this version.')}"/>
+                          AutomationProperties.HelpText="{x:Bind local:Loc.T('The Predator key opens the panel from any app. Off leaves the key without that action.')}"/>
           </Grid>
         </StackPanel>
       </Border>

@@ -74,10 +74,11 @@ namespace Predex.WinUI.Services
             public string? WindowStyle { get; set; }
             public string? AccentMode { get; set; }
             public string? AccentColor { get; set; }
-            // The four Personalisation → Interface switches are NOT a member of this class on
-            // purpose: UiPanelState.cs owns the "UiPanels" member and reads/writes it inside the
-            // same file, so the flags have exactly one serialization path (the one the tests
-            // link). System.Text.Json ignores the member here when it deserializes the file.
+            // The Personalisation → Interface switches (four panel rows + the four status-bar
+            // fields) are NOT a member of this class on purpose: UiPanelState.cs owns the
+            // "UiPanels" member and reads/writes it inside the same file, so the flags have
+            // exactly one serialization path (the one the tests link). System.Text.Json ignores
+            // the member here when it deserializes the file.
         }
 
         private static readonly Color DefaultAccent = Color.FromArgb(0xFF, 0x3B, 0x82, 0xF6);
@@ -93,10 +94,10 @@ namespace Predex.WinUI.Services
         public static Color AccentColor { get; private set; } = DefaultAccent;
 
         /// <summary>
-        /// Visibility of the four hideable rows of the expanded home panel
-        /// (Personalisation → Interface). Held here rather than in a new store: appearance.json
-        /// is already the file that owns "how the shell looks", and preysense.json is the Core
-        /// config this stage must not grow a schema for.
+        /// Visibility of the hideable rows of the expanded home panel and of the status bar's
+        /// fields (Personalisation → Interface). Held here rather than in a new store:
+        /// appearance.json is already the file that owns "how the shell looks", and preysense.json
+        /// is the Core config this stage must not grow a schema for.
         /// </summary>
         public static UiPanelVisibility UiPanels { get; private set; } = new();
 
@@ -119,9 +120,10 @@ namespace Predex.WinUI.Services
         public static event EventHandler? AccentChanged;
 
         /// <summary>
-        /// Raised after one of the four Interface switches changed. HomePage is the only
-        /// listener: it is the page that owns the rows, and it is rebuilt after every
-        /// hide-to-tray cycle, so it re-reads <see cref="UiPanels"/> on load anyway.
+        /// Raised after one of the Interface switches (a panel row or a status-bar field)
+        /// changed. HomePage is the only listener: it is the page that owns the rows and the
+        /// status-bar fields, and it is rebuilt after every hide-to-tray cycle, so it re-reads
+        /// <see cref="UiPanels"/> on load anyway.
         /// </summary>
         public static event EventHandler? UiPanelsChanged;
 
@@ -315,7 +317,9 @@ namespace Predex.WinUI.Services
         }
 
         // ── Interface switches (Personalisation → Interface) ─────────────────────
-        /// <summary>Is this home-panel row currently visible?</summary>
+        /// <summary>
+        /// Is this home-panel row (or status-bar field) currently visible / selected?
+        /// </summary>
         public static bool IsUiPanelVisible(UiPanel panel)
         {
             EnsureInitialized();
@@ -323,8 +327,9 @@ namespace Predex.WinUI.Services
         }
 
         /// <summary>
-        /// Hides / shows one home-panel row. Applied immediately (HomePage listens), logged,
-        /// and persisted into the same appearance.json — no new file, no Core schema change.
+        /// Hides / shows one home-panel row, or turns one status-bar field on / off. Applied
+        /// immediately (HomePage listens), logged, and persisted into the same appearance.json —
+        /// no new file, no Core schema change.
         /// </summary>
         public static void SetUiPanel(UiPanel panel, bool visible)
         {
@@ -337,11 +342,12 @@ namespace Predex.WinUI.Services
             UiPanelsChanged?.Invoke(null, EventArgs.Empty);
         }
 
-        /// <summary>All four back on: the panel a fresh profile starts with.</summary>
+        /// <summary>Every row back on and every status-bar field back to its default.</summary>
         public static void ShowAllUiPanels()
         {
             EnsureInitialized();
-            if (UiPanels.AllVisible) return;
+            if (UiPanels.AllVisible && UiPanels.StatusBarTemperature && UiPanels.StatusBarUsage
+                && UiPanels.StatusBarFrequency && UiPanels.StatusBarFan) return;
 
             UiPanels = new UiPanelVisibility();
             ShellLog.Write("appearance", "ui panels reset to all visible");

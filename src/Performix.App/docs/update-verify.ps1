@@ -15,8 +15,10 @@
                                 更新失败 + one-sentence reason + Retry / Switch source and retry
         update-manual-install.png  a manifest whose minVersion is above this build: the status
                                 line says 需手动安装, the body carries the block reason and the
-                                download button stays visible but DISABLED (no accent pixels by
-                                design, see the assertion below).
+                                download button stays visible but DISABLED (no accent fill on the
+                                button; the page's "Automatic updates" switch is the only accent
+                                source left, which is why that shot is asserted with a ceiling,
+                                see the assertion below).
 
     THE SCREENSHOT IS ASSERTED, NOT TRUSTED. PrintWindow cannot capture the Mica / acrylic
     composition surface, which is why the same build used to produce three different page
@@ -440,7 +442,7 @@ function Start-App([string]$manifestName, [string]$autoMode) {
 
     $work = Split-Path -Parent (Resolve-Path $Exe).Path
     $feed = "http://127.0.0.1:$Port/$manifestName"
-    $launchArgs = @('--no-autohide', '--trace', "--update-feed=$feed", '--update-no-install')
+    $launchArgs = @('--no-autohide', '--trace', "--update-feed=$feed", '--update-no-install', '--update-no-auto')
     if ($autoMode) { $launchArgs += "--update-auto=$autoMode" }
     Zz ("launch: {0} {1}" -f (Split-Path -Leaf $Exe), ($launchArgs -join ' '))
     $proc = Start-Process -FilePath $Exe -WorkingDirectory $work -ArgumentList $launchArgs -PassThru
@@ -703,16 +705,21 @@ finally {
 }
 
 # ── 6. Screenshot assertions (do not trust PrintWindow blindly) ──────────────────────────
-Write-Step 'asserting the five screenshots share one theme (the manual-install one has no accent by design)'
+Write-Step 'asserting the five screenshots share one theme (the manual-install one has no accent on its button)'
 
 if ($script:shots.Count -ne 5) {
     throw "expected 5 screenshots, captured $($script:shots.Count)"
 }
 
 # The minVersion-gated state renders an INERT primary button, and a disabled WinUI button paints
-# ButtonBackgroundDisabled — there is no accent fill to find. That is the assertion's point, so
-# the accent count is skipped for that one shot while the print/theme/ink checks still apply.
+# ButtonBackgroundDisabled — there is no accent fill to find on the BUTTON. That is the
+# assertion's point, so the accent check for that one shot is a ceiling rather than a floor:
+# since the page grew an "Automatic updates" ToggleSwitch (accent fill when on, ~800 px at 100 %
+# scale), "zero accent pixels" is no longer a true statement about a correct page. The ceiling
+# still fails the run if the download button is live: an enabled primary button paints an
+# accent slab of ~15 000 px, an order of magnitude above the switch.
 $noAccentShot = 'update-manual-install.png'
+$maxAccentOnInertShot = 3000
 
 $reference = $script:shots[0]
 $failed = $false
@@ -723,8 +730,9 @@ foreach ($shot in $script:shots) {
         $failed = $true
     }
     if ($shot.Name -eq $noAccentShot) {
-        if ($shot.Accent -ge 20) {
-            Write-Warning "$($shot.Name) has $($shot.Accent) accent pixels: the download button is not disabled below minVersion"
+        if ($shot.Accent -ge $maxAccentOnInertShot) {
+            Write-Warning ("$($shot.Name) has $($shot.Accent) accent pixels (ceiling $maxAccentOnInertShot): " +
+                "the download button is not disabled below minVersion")
             $failed = $true
         }
     } elseif ($shot.Accent -lt 20) {

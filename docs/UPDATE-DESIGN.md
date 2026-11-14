@@ -954,7 +954,7 @@ private void ApplyAccent() {
 
 | 不做 | 理由 | 参考实现的反证 |
 |---|---|---|
-| **静默自动更新** | Predex 提权 + 硬件操作（风扇/模式），后台替换 + 重启会打断用户正在调的东西；且我们没有回落通道 | Dafeiyu 有 `LauncherUpdateMode=Install` 的启动期自动装（`WinUIProgram.cs:2433-2540`），但它是"启动器壳"，挂了不影响 DSH 服务 |
+| ~~**静默自动更新**~~ → **改为：默认自动更新，可在设置里关闭** | **用户明确要求放开**（2026-11-14）。原立场是"提权 + 硬件操作，后台替换会打断用户正在调的东西"，现在改为**默认开、开关可关**，并把"不打断用户"做成硬条件：只在没有对话框、没有模式切换/调参在跑、真实输入空闲 ≥15 s 时才安装，装前先在右下角信息窗给出「即将重启安装」提示。开关关闭 = 完全不联网（连检查都不做），与旧的 `UpdateFeedConfigured=false` 行为一致。详见 4.4。 | Dafeiyu 有 `LauncherUpdateMode=Install` 的启动期自动装（`WinUIProgram.cs:2433-2540`），但它是"启动器壳"，挂了不影响 DSH 服务；我们照的是它的"能自动装"，但把打断条件收紧成可测的判据 |
 | **增量补丁 / 差分更新** | 包才几十 MB，收益 < 双份清单 + 补丁链的复杂度与失败率 | Dafeiyu 的补丁系统（`PatchFeedService.cs` 等）是给 DSH 插件用的，不是应用自更新 |
 | **自建 CDN / 后端下载代理** | 参考实现那套要服务器 + 自有 CA + SPKI pin + `/api/download/status` 轮询（`BackendDownloadSource.cs:15-104`），Predex 连发布流程都还没有 | 等真有"每月发布 + 有用户"再谈 |
 | **GitCode 镜像** | 参考实现里根本不存在（全仓库零命中），没实测数据支撑 | — |
@@ -969,6 +969,7 @@ private void ApplyAccent() {
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
+| 自动安装打断用户（自动更新放开后新增） | 用户正在调曲线 / 切模式时被重启 | 装前三道闸（4.4.2）：无对话框、无模式切换或调参在跑、输入空闲 ≥15 s；装前信息窗给「即将重启安装」提示；等满 30 min 仍不空闲就停在 ReadyToInstall，交给更新页的按钮，不硬装 |
 | 清单/包被投毒（我们仓库被入侵） | 用户装到恶意 exe，sha256 也会一起被换 | ① 清单内 URL host 白名单（`UpdateSupport.cs:185-189` 同款）；② 发版必须走"本地构建 → 上传 → **从线上真实下载回来核 sha256** → 才写清单"（`manifests/README.md:5`、`HANDOVER.md:161-162` 的做法）；③ 文档里不许把 sha256 说成"签名" |
 | GitHub 匿名 API 限流 60 次/时 | 清单拉不到 | 12 小时缓存（`InstallerUpdateService.cs:44-48`）；API 只做兜底组 |
 | 第三方镜像突然停服/限速 | 下载卡住 | 组内并行 + 20s 停滞看门狗 + 换源；镜像池写在代码里可发版修正 |
@@ -985,13 +986,88 @@ private void ApplyAccent() {
 | 0.1.0-alpha.1 → 0.1.0 的语义跳变 | 用户以为降级 | 判定表 2.3.2 明写"release 压过自己的预发布"；UI 上显示通道名 |
 
 ## 4.3 发布流程前提（否则整套东西没意义）
-
 更新机制依赖一个能发布的地方。落地顺序建议：
 
 1. 建 `github.com/<OWNER>/Predex`（公开），把 `app/experiments/Predex.WinUI` 的 publish 产物打 zip。
 2. 本地脚本产出 `manifest-<channel>.json`（sha256 + sizeBytes 由脚本算，人**不许手填**）。
 3. 先传 Release → **下载回来复核**（`Get-FileHash` 对上才继续）→ 再推清单 → 再读回清单确认（`HANDOVER.md:161-162` 的流程）。
 4. 首发用 `manifest-alpha.json` + `0.1.0-alpha.1`，稳定后再开 `manifest.json`。
+
+## 4.4 自动更新（默认开，可关）
+
+> **立场变更**：本文档早先的结论是"不做静默自动更新"。用户明确要求放开，因此现在的规则是
+> **默认自动检查 + 自动下载 + 自动安装，设置里可以关**。原先反对的两条理由没有被忽略，而是
+> 变成了实现里的硬条件：
+> - "会打断用户正在调的东西" → 4.4.2 的三道闸 + 安装前的提示；
+> - "没有回落通道" → 仍然不做自动回滚（包已校验、替换脚本失败保留备份，见 §2.4.2）。
+>
+> **仍然不做**：强制更新、灰度、增量补丁、自动降级（§4.1 其余各行不变）。
+
+### 4.4.1 开关与调度
+
+| 项 | 值 | 位置 |
+|---|---|---|
+| 存储 | `preysense.json` → `General.AutoUpdate`（bool，默认 `true`） | `PreySenseConfig.GeneralConfig` / `preysense.schema.json` |
+| 读取 | `UpdatePreferences.AutoUpdate`（读失败回落默认 `true` 并记日志） | `Services/Update/UpdatePreferences.cs` |
+| 首次延迟 | 45 s（brief 要求 30–60 s） | `UpdateAutoSchedule.FirstDelaySeconds` |
+| 重复间隔 | 6 h | `UpdateAutoSchedule.IntervalSeconds` |
+| 关 = 不联网 | 循环根本不启动；运行中关掉则当前周期放弃（闸每 2 s 重读一次开关） | `UpdateAutoRunner` / `UpdateQuietWindow` |
+| 验证开关 | `--update-no-auto`（只影响本次运行，不改用户答案）；`--update-feed` 也会抑制循环 | `UpdateAutoRunner.Start` |
+
+**为什么放 `preysense.json` 而不是 `appearance.json`**：它是产品偏好（和"开机启动""硬件调参"同一类），
+不是外观；`appearance.json` 归主题页所有，更新路径不该依赖一个被主题页重写的文件。更关键的是
+`preysense.json` 在自更新的**保留白名单**里（§2.4.3），所以这个答案能活过它所控制的那次更新。
+
+调度是纯函数（`UpdateAutoSchedule.NextDue / IsDue / DelayUntil`），三个问题各有一条单测：首次延迟、
+间隔、关闭后永不触发。**过期的上次检查时间不会变成"立刻跑"**——启动延迟永远先执行，因为它的目的就是
+不让网络出现在启动路径上；时间戳跑到未来（时钟偏移）则顺延一个间隔，而不是每 tick 都触发。
+
+### 4.4.2 不打断用户：安装前的三道闸
+
+`UpdateQuietWindow.Evaluate` 是纯函数，输入只有四个值，四条失败原因各有一条单测：
+
+| 闸 | 判据 | 为什么这样判 |
+|---|---|---|
+| 开关 | `AutoUpdate == true` | 等待期间被关掉 → 立刻放弃（比"下次不检查"更强） |
+| 对话框 | `ShellWindow.Prompts.IsDialogOpen` | 用户正在回答一个问题，重启会把答案丢掉 |
+| 壳忙 | `MainViewModel.IsBusy`（模式切换 / 调参应用共用这一个标志） | 正在写 EC / 应用曲线时重启 = 半途而废 |
+| 真实空闲 | `GetLastInputInfo` ≥ 15 s | **这是"正在拖风扇曲线"唯一诚实的信号**：曲线编辑器每次 pointer move 直接写 ViewModel、只有 200 ms 防抖后的 Auto Apply 才落盘，没有"正在编辑"的旗标可读；鼠标在动就是没空闲 |
+
+闸每 2 s 复查一次。等满 **30 min** 仍不空闲 → 记录日志、信息窗切成「已就绪，等您空闲时安装」，包保持
+已验证状态（不重下），下次检查或更新页的按钮可以直接装。**不会无限期挂着，也不会硬装。**
+
+通过闸之后：信息窗显示「即将重启安装 vX」（6 s），再复查一次空闲（这 6 s 里用户一动就取消），
+然后走原有的 `scripts\invoke-update.ps1`（等 PID 退出 → 备份 → 覆盖 → 重启）。
+
+### 4.4.3 状态显示：右下角信息窗
+
+`Views/UpdateInfoWindow` —— 独立顶层窗口，**不置顶**（`IsAlwaysOnTop = false` + `HWND_NOTOPMOST`），
+`WS_EX_NOACTIVATE` 所以点击不抢焦点，位置贴主屏工作区右下角、距边 24 DIP（工作区不含任务栏，
+因此不会盖住通知区域图标）。
+
+| 状态 | 标题 | 详情 / 进度 |
+|---|---|---|
+| Checking | 正在检查更新… | 当前版本，转圈 |
+| Available | 发现新版本 vX | 正在开始下载… |
+| Downloading | 正在下载更新 vX | 已收/总量 · 速度，进度条 + 百分比 |
+| Verifying | 正在校验更新包… | 不确定进度条 |
+| ReadyToInstall | 更新 vX 已就绪 | 等您空闲时安装 |
+| （闸通过） | 即将重启安装 vX | 几秒后关闭并重新打开 |
+| UpToDate | 已是最新 | vX 已是最新版本，8 s 后淡出 |
+| Failed | 更新失败 | 一句话原因，8 s 后淡出（详情在 update.log） |
+
+**尺寸固定 360 × 104 DIP**（`ProgressBar` 所在的行走 `Collapsed` 但行高固定 14 DIP），所以
+状态切换只换文字不换几何——这就是"多个状态切换不要闪"。点一下窗口 = 打开更新页（详情）。
+
+失败与完成状态 8 s 后淡出；`Checking/Downloading/Verifying/ReadyToInstall` 不自动消失。
+**任何情况下都不弹模态对话框**（brief 明令）。
+
+### 4.4.4 失败一律静默
+
+自动检查走 `UpdateSession.CheckSilentlyAsync`：网络异常/无发布**只写 shell.log**，不动状态机，
+因此页面不会被后台失败弄成「更新失败」。只有真正下载到包之后的失败（下载/校验/安装）才会让卡片显示
+失败态——那也是用户点一下就能重试的真实事件。手动「检查更新」仍走原来的 `CheckAsync`（有失败态、有重试）。
+
 
 ---
 

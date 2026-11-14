@@ -49,6 +49,20 @@
     <Compile Include="..\..\src\Performix.App\Services\ShellLog.cs" Link="Update\ShellLog.cs" />
 
     <!--
+      Automatic updates (on by default, switch on the Update page).
+
+      The two decisions the feature can get wrong are pure by design and live in their own files:
+        * UpdateAutoSchedule — when the next check is due (first delay, interval, off = never);
+        * UpdateQuietWindow  — whether the machine is quiet enough to restart into the new build.
+      UpdatePreferences is linked too: its whole job is "preysense.json → General.AutoUpdate,
+      default on", and the test assembly already points ConfigurationService at a temp file
+      (TestSettingsDirectory), so the default and the round trip are asserted instead of assumed.
+    -->
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateAutoSchedule.cs" Link="Update\UpdateAutoSchedule.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdateQuietWindow.cs" Link="Update\UpdateQuietWindow.cs" />
+    <Compile Include="..\..\src\Performix.App\Services\Update\UpdatePreferences.cs" Link="Update\UpdatePreferences.cs" />
+
+    <!--
       Page-lifetime regression coverage: the shell caches page instances, so Loaded/Unloaded
       repeat while IPredexPage.Vm is assigned once. PropertyChangedSubscription owns that
       attach/detach bookkeeping and is dependency-free (System.ComponentModel only), so the
@@ -74,6 +88,24 @@
       which is exactly why the serialization does not live in there.
     -->
     <Compile Include="..\..\src\Performix.App\Services\UiPanelState.cs" Link="Services\UiPanelState.cs" />
+
+    <!--
+      General → "Always on Top" / "Special Key Wake". WindowBehaviorSettings.cs holds the two
+      decisions (does a focus loss still hide the panel? does a vendor hotkey summon it?) and
+      the preysense.json round-trip. It is dependency-free on purpose — no WinUI, no HWND, no
+      static state — so "does topmost really disable the auto-hide?" is a test instead of a
+      click-through on a live machine.
+    -->
+    <Compile Include="..\..\src\Performix.App\Services\WindowBehaviorSettings.cs" Link="Services\WindowBehaviorSettings.cs" />
+
+    <!--
+      Mode-switch OSD placement (Views\ModeOsdPlacement.cs). The overlay window is created once
+      and reused for the whole process, so a resolution / refresh-rate / DPI switch used to leave
+      it placing itself on the work area of the *previous* display mode. The placement maths is
+      pure (no WinUI, no HWND, no static state), so "the card is still inside the work area after
+      the mode changed" is a test over a resolution × DPI matrix instead of a screenshot.
+    -->
+    <Compile Include="..\..\src\Performix.App\Views\ModeOsdPlacement.cs" Link="Views\ModeOsdPlacement.cs" />
 
     <!--
       Services page vendor detection. OemBrand.cs is the pure half (manufacturer string → brand,

@@ -1,11 +1,15 @@
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Predex.WinUI.Services;
+using PreySense.Core.Services;
 using PreySense.Frontend.ViewModels;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Numerics;
 
 namespace Predex.WinUI.Pages
@@ -38,13 +42,21 @@ namespace Predex.WinUI.Pages
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             UpdateGpuTileLayout();
 
-            // Personalisation → Interface: four switches hide four rows of this panel.
+            // Personalisation → Interface: four switches hide four rows of this panel, and four
+            // more pick the fields of the status bar itself.
             // Subscribed here (not in the constructor) because the shell drops the whole page
             // tree when the window hides to the tray, so this page is rebuilt and re-reads the
             // persisted flags on every show.
             Predex.WinUI.Services.AppearanceService.UiPanelsChanged -= OnUiPanelsChanged;
             Predex.WinUI.Services.AppearanceService.UiPanelsChanged += OnUiPanelsChanged;
             ApplyInterfacePanels();
+
+            // The status bar reads the shared snapshot directly instead of the ViewModel's
+            // CpuFanText / GpuFanText pair: the same snapshot carries the usage and clock fields
+            // the row can now show, and MainViewModel only mirrors two of them.
+            TelemetryCoordinator.SnapshotAvailable -= OnTelemetrySnapshot;
+            TelemetryCoordinator.SnapshotAvailable += OnTelemetrySnapshot;
+            RenderStatusBar(TelemetryCoordinator.CurrentSnapshot);
 
             // --trace evidence for the integration pass: GPU mode state is read on a background
             // task, so "no tile selected" can simply mean "state not known yet / DDS unavailable"
@@ -63,6 +75,9 @@ namespace Predex.WinUI.Pages
         {
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             Predex.WinUI.Services.AppearanceService.UiPanelsChanged -= OnUiPanelsChanged;
+            TelemetryCoordinator.SnapshotAvailable -= OnTelemetrySnapshot;
+            // Nobody is looking at the status bar any more: stop paying for usage / clock reads.
+            TelemetryCoordinator.SetMainWindowExtraMetrics(TelemetryMetrics.None);
         }
 
         // ── Personalisation → Interface (the four panel switches) ────────────────
@@ -84,8 +99,12 @@ namespace Predex.WinUI.Pages
             bool widgets = Predex.WinUI.Services.AppearanceService.IsUiPanelVisible(
                 Predex.WinUI.Services.UiPanel.WidgetBar);
 
-            SetRowVisible(TelemetryRow, status);
-            SetRowVisible(RuleStatusBar, status);
+            // All four status-bar fields off means the row would print two bare device labels:
+            // an empty row is not worth 14 DIP (UI-DESIGN-RULES §5), so it leaves with them.
+            bool statusFields = Predex.WinUI.Services.AppearanceService.UiPanels.AnyStatusFieldVisible;
+
+            SetRowVisible(TelemetryRow, status && statusFields);
+            SetRowVisible(RuleStatusBar, status && statusFields);
 
             SetRowVisible(GpuHeaderRow, gpu);
             SetRowVisible(GpuGroup, gpu);
@@ -99,12 +118,138 @@ namespace Predex.WinUI.Pages
             SetRowVisible(EntryFans, widgets);
             SetRowVisible(EntryTuning, widgets);
 
+            ApplyStatusBarDemand();
+            RenderStatusBar(TelemetryCoordinator.CurrentSnapshot);
+
             Predex.WinUI.Services.ShellLog.Write("home",
-                $"interface panels statusBar={status} gpuBar={gpu} refreshRateBar={refreshRate} widgetBar={widgets}");
+                $"interface panels statusBar={status} gpuBar={gpu} refreshRateBar={refreshRate} widgetBar={widgets} " +
+                $"statusFields={DescribeStatusFields()}");
+        }
+
+        /// <summary>Which status-bar fields are on, as log text (one line per panel rebuild).</summary>
+        private static string DescribeStatusFields()
+        {
+            var panels = Predex.WinUI.Services.AppearanceService.UiPanels;
+            return $"temp={panels.StatusBarTemperature} usage={panels.StatusBarUsage} " +
+                   $"freq={panels.StatusBarFrequency} fan={panels.StatusBarFan}";
         }
 
         private static void SetRowVisible(FrameworkElement row, bool visible)
             => row.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+        // ── Status bar: which fields, and how they are rendered ──────────────────
+        //
+        // One 14 DIP line, CPU left / GPU right, each column a label plus a star-sized value that
+        // trims. The compact forms (62°, 41%, 4.2G, 4109) are what makes four fields fit one
+        // column of a 320 DIP window; the exact reading, units included, is the tooltip. A field
+        // with no reading prints "—" — never a blank, and never an invented number.
+        private readonly record struct StatusField(string Compact, string Exact);
+
+        /// <summary>Asks the coordinator for the sensors the current selection actually shows.</summary>
+        private void ApplyStatusBarDemand()
+        {
+            var panels = Predex.WinUI.Services.AppearanceService.UiPanels;
+            TelemetryMetrics extra = TelemetryMetrics.None;
+
+            if (panels.StatusBarUsage)
+                extra |= TelemetryMetrics.CpuUsage | TelemetryMetrics.GpuUsage;
+            if (panels.StatusBarFrequency)
+                extra |= TelemetryMetrics.CpuClock | TelemetryMetrics.GpuActiveClock;
+
+            TelemetryCoordinator.SetMainWindowExtraMetrics(extra);
+        }
+
+        private void OnTelemetrySnapshot(TelemetrySnapshot snapshot)
+        {
+            // SnapshotAvailable is raised on the sampling thread.
+            DispatcherQueue.TryEnqueue(() => RenderStatusBar(snapshot));
+        }
+
+        private void RenderStatusBar(TelemetrySnapshot snapshot)
+        {
+            var panels = Predex.WinUI.Services.AppearanceService.UiPanels;
+            if (TxtStatusCpu is null || TxtStatusGpu is null) return;
+
+            List<StatusField> cpu = BuildFields(snapshot, gpu: false, panels);
+            List<StatusField> gpu = BuildFields(snapshot, gpu: true, panels);
+
+            SetStatusText(TxtStatusCpu, cpu);
+            SetStatusText(TxtStatusGpu, gpu);
+        }
+
+        private static void SetStatusText(TextBlock target, List<StatusField> fields)
+        {
+            string compact = string.Empty;
+            string exact = string.Empty;
+            foreach (StatusField field in fields)
+            {
+                compact = compact.Length == 0 ? field.Compact : compact + " " + field.Compact;
+                exact = exact.Length == 0 ? field.Exact : exact + " · " + field.Exact;
+            }
+
+            target.Text = compact.Length == 0 ? "—" : compact;
+            // The compact form ("62° 41% 4.2G 4109") is not self-describing, so the exact reading
+            // with units is both the tooltip and the screen-reader value (UI-DESIGN-RULES §7.4 —
+            // the accessible text may be longer than the visible text, it just must not be drawn).
+            ToolTipService.SetToolTip(target, exact.Length == 0 ? null : exact);
+            AutomationProperties.SetHelpText(target, exact);
+        }
+
+        private static List<StatusField> BuildFields(
+            TelemetrySnapshot snapshot, bool gpu, UiPanelVisibility panels)
+        {
+            var fields = new List<StatusField>(4);
+            if (panels.StatusBarTemperature) fields.Add(Temperature(snapshot, gpu));
+            if (panels.StatusBarUsage) fields.Add(Usage(snapshot, gpu));
+            if (panels.StatusBarFrequency) fields.Add(Frequency(snapshot, gpu));
+            if (panels.StatusBarFan) fields.Add(Fan(snapshot, gpu));
+            return fields;
+        }
+
+        // The three readings below are only trusted while the snapshot is valid, exactly like
+        // MainViewModel.ApplyMainWindowTelemetry: a stale snapshot reports nulls, and a null must
+        // render as "—" rather than as a zero.
+        private static StatusField Temperature(TelemetrySnapshot snapshot, bool gpu)
+        {
+            int? celsius = snapshot.IsValid ? (gpu ? snapshot.GpuTemp : snapshot.CpuTemp) : null;
+            return celsius is > 0
+                ? new StatusField($"{celsius}°", $"{celsius} °C")
+                : new StatusField("—", "—");
+        }
+
+        private static StatusField Usage(TelemetrySnapshot snapshot, bool gpu)
+        {
+            int? percent = snapshot.IsValid ? (gpu ? snapshot.GpuUsage : snapshot.CpuUsage) : null;
+            return percent is >= 0 and <= 100
+                ? new StatusField($"{percent}%", $"{percent} %")
+                : new StatusField("—", "—");
+        }
+
+        private static StatusField Frequency(TelemetrySnapshot snapshot, bool gpu)
+        {
+            // CPU: the P-core active clock (CpuActiveFrequencyMhz is the same sample's maximum).
+            // GPU: NVAPI's active clock, falling back to the reported clock.
+            int? mhz = snapshot.IsValid
+                ? (gpu
+                    ? snapshot.GpuActiveClockMhz ?? snapshot.GpuClockMhz
+                    : snapshot.CpuClockMhz ?? snapshot.CpuActiveFrequencyMhz)
+                : null;
+
+            if (mhz is not > 0) return new StatusField("—", "—");
+
+            string compact = mhz >= 1000
+                ? (mhz.Value / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + "G"
+                : mhz.Value.ToString(CultureInfo.InvariantCulture) + "M";
+            return new StatusField(compact, $"{mhz} MHz");
+        }
+
+        private static StatusField Fan(TelemetrySnapshot snapshot, bool gpu)
+        {
+            int? rpm = snapshot.IsValid ? (gpu ? snapshot.GpuRpm : snapshot.CpuRpm) : null;
+            return rpm is > 0
+                ? new StatusField($"{rpm}", $"{rpm} RPM")
+                : new StatusField("—", "—");
+        }
 
         // ── Density state ────────────────────────────────────────────────────────
         public bool IsExpanded => _isExpanded;

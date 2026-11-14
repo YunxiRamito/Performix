@@ -234,6 +234,37 @@ public static class TelemetryCoordinator
     private static TelemetryMetrics _overlayMetrics;
     public const TelemetryMetrics MainWindowMetrics = TelemetryMetrics.Temperatures | TelemetryMetrics.CpuFanRpm | TelemetryMetrics.GpuFanRpm | TelemetryMetrics.DisplayAdapter;
 
+    /// <summary>
+    /// Metrics the main window asks for on top of <see cref="MainWindowMetrics"/>: CPU / GPU
+    /// usage and clocks, which the status bar can show (Personalisation → Interface → status
+    /// bar fields). Empty by default, so a run that never turns those fields on samples exactly
+    /// what it sampled before — this is a demand rather than a constant on purpose, because a
+    /// sensor nobody displays must not be polled. The readings come from the same
+    /// TelemetryCollector path the overlay already uses (CpuUsageMonitor, the CPU driver clocks,
+    /// NVAPI / NVML), so there is no second source.
+    /// </summary>
+    private static TelemetryMetrics _mainWindowExtraMetrics;
+
+    public static TelemetryMetrics MainWindowExtraMetrics
+    {
+        get
+        {
+            lock (SyncLock) return _mainWindowExtraMetrics;
+        }
+    }
+
+    /// <summary>Replaces the extra metrics; non-hardware flags are dropped.</summary>
+    public static void SetMainWindowExtraMetrics(TelemetryMetrics metrics)
+    {
+        lock (SyncLock)
+        {
+            TelemetryMetrics extra = metrics & TelemetryMetrics.Hardware;
+            if (_mainWindowExtraMetrics == extra) return;
+            _mainWindowExtraMetrics = extra;
+            ScheduleNextMasterTick();
+        }
+    }
+
     public static TelemetryMetrics RequestedMetrics
     {
         get
@@ -242,7 +273,7 @@ public static class TelemetryCoordinator
             {
                 var demand = (TelemetryDemand)_demandMask;
                 var metrics = _overlayActive ? TelemetryMetrics.FrameRate : TelemetryMetrics.None;
-                if (demand.HasFlag(TelemetryDemand.MainWindow)) metrics |= MainWindowMetrics;
+                if (demand.HasFlag(TelemetryDemand.MainWindow)) metrics |= MainWindowMetrics | _mainWindowExtraMetrics;
                 if (demand.HasFlag(TelemetryDemand.Overlay)) metrics |= _overlayMetrics;
                 if (demand.HasFlag(TelemetryDemand.FanController))
                     metrics |= TelemetryMetrics.Temperatures;
@@ -426,6 +457,7 @@ public static class TelemetryCoordinator
             Heartbeat = null;
             _overlayActive = false;
             _overlayMetrics = TelemetryMetrics.None;
+            _mainWindowExtraMetrics = TelemetryMetrics.None;
             _customFullSampler = null;
             _customFanOnlySampler = null;
             _customTimestampProvider = null;

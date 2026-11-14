@@ -111,6 +111,32 @@
                      Visibility="Collapsed"
                      AutomationProperties.AutomationId="TxtUpdateTarget"/>
 
+          <!-- AUTOMATIC UPDATES (on by default). One row: label + switch. The sentence below is
+               the only prose on the page, and it earns its place: turning this on means the app
+               restarts itself, which the user has to be told before they find out the hard way.
+               The switch persists to preysense.json (General.AutoUpdate) — see
+               Services\Update\UpdatePreferences.cs for why that file and not appearance.json. -->
+          <Grid Style="{StaticResource SettingRowStyle}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{x:Bind local:Loc.T('Automatic updates')}"
+                       Style="{StaticResource SettingLabelStyle}"/>
+            <ToggleSwitch Grid.Column="1" x:Name="ChkAutoUpdate"
+                          Style="{StaticResource SettingSwitchStyle}"
+                          OnContent="{x:Bind local:Loc.T('On')}"
+                          OffContent="{x:Bind local:Loc.T('Off')}"
+                          Toggled="AutoUpdate_Toggled"
+                          AutomationProperties.AutomationId="ChkAutoUpdate"
+                          AutomationProperties.Name="{x:Bind local:Loc.T('Automatic updates')}"/>
+          </Grid>
+          <TextBlock x:Name="TxtAutoUpdateHint"
+                     Text="{x:Bind local:Loc.T('Checks for a new version after startup, downloads it and installs it while you are not busy. Off means Performix never goes online for updates.')}"
+                     Style="{StaticResource SettingHintStyle}"
+                     Margin="0,0,0,6"
+                     AutomationProperties.AutomationId="TxtAutoUpdateHint"/>
+
           <Grid Style="{StaticResource SettingRowStyle}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>

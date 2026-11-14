@@ -157,8 +157,28 @@ namespace Predex.WinUI.Shell
         private int _toastSession;
         private bool _isExplicitExit;
         private bool _isExpanded;
+        /// <summary>
+        /// Chevron rotation (radians) that could not be applied yet because the glyph had no
+        /// measured size (see <see cref="AnimateChevron"/>). Null = nothing deferred.
+        /// </summary>
+        private float? _pendingChevronTarget;
+        private bool _chevronSizeHooked;
         private string _currentTag = "Home";
         private DateTime _ignoreDeactivateUntil = DateTime.MinValue;
+
+        /// <summary>
+        /// Settings → General → "Always on Top". While it is on the panel stays above other
+        /// windows AND stops hiding itself when it loses focus: the auto-hide is exactly what
+        /// made a topmost tray panel pointless (docs\design\UI-ARCH.md §4.1.1). Both halves of
+        /// the promise are applied together, never one without the other.
+        /// </summary>
+        private bool _alwaysOnTop;
+
+        /// <summary>
+        /// Settings → General → "Special Key Wake": the vendor hotkey (Predator logo key,
+        /// E0 75) summons the panel while another app is in front.
+        /// </summary>
+        private bool _specialKeyWake = true;
 
         /// <summary>
         /// True once <see cref="QuitApplication"/> has run: the shell is on its way out. Read by
@@ -219,12 +239,17 @@ namespace Predex.WinUI.Shell
             ApplyDensity(_isExpanded, animate: false);
             UpdateChrome();
 
+            // ── Persisted window behaviour (Settings → General) ───────────────────
+            // Before the tray/hotkey services exist, so the very first key press already obeys
+            // the saved answer and a restart keeps both switches (preysense.json).
+            LoadWindowBehavior();
+
             // ── Shell services (tray / hotkeys / HID / memory) ───────────────────
             IntPtr hWnd = WindowNative.GetWindowHandle(this);
             _services = new ShellServices(hWnd, DispatcherQueue);
             _services.OpenRequested += ShowAndActivate;
             _services.TrayToggleRequested += TrayClicked;
-            _services.ToggleRequested += ToggleVisibility;
+            _services.ToggleRequested += OnVendorHotkeyPressed;
             _services.QuitRequested += QuitApplication;
             _services.OverlayToggleRequested += () => DispatcherQueue.TryEnqueue(OverlayBridge.Toggle);
             _services.ModeShortcutRequested += mode =>
@@ -329,6 +354,8 @@ namespace Predex.WinUI.Shell
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TOOLWINDOW = 0x00000080;
         private const int WS_EX_NOACTIVATE = 0x08000000;
+        /// <summary>WS_EX_TOPMOST — the bit "Always on Top" is verified against.</summary>
+        private const int WS_EX_TOPMOST = 0x00000008;
         private const int WS_CAPTION = 0x00C00000;
         private const int WS_THICKFRAME = 0x00040000;
         private const int WS_POPUP = unchecked((int)0x80000000);
@@ -337,6 +364,9 @@ namespace Predex.WinUI.Shell
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
         private const uint SWP_FRAMECHANGED = 0x0020;
+        /// <summary>SetWindowPos z-order anchors: HWND_TOPMOST / HWND_NOTOPMOST.</summary>
+        private static readonly IntPtr HwndTopmost = new(-1);
+        private static readonly IntPtr HwndNoTopmost = new(-2);
         private const uint DWMWA_BORDER_COLOR = 34;
         private const uint DWMWA_CAPTION_COLOR = 35;
         /// <summary>DWMWA_COLOR_NONE — let DWM draw no frame line at all.</summary>
@@ -578,15 +608,34 @@ namespace Predex.WinUI.Shell
             }
         }
 
+        /// <summary>
+        /// Turns the title-bar chevron with the density. The glyph is ChevronDown (E70D), so the
+        /// collapsed state is the 180° one (it points up) and the expanded state is 0° (it points
+        /// down again — the affordance for "collapse").
+        /// </summary>
         private void AnimateChevron(bool expanded)
         {
             Visual visual = ElementCompositionPreview.GetElementVisual(ExpandGlyph);
-            visual.CenterPoint = new Vector3(
-                (float)ExpandGlyph.ActualWidth / 2f,
-                (float)ExpandGlyph.ActualHeight / 2f,
-                0f);
+            HookChevronSize();
 
-            float target = expanded ? MathF.PI : 0f;
+            float target = expanded ? 0f : MathF.PI;
+
+            // RotationAngle pivots around CenterPoint, so the centre has to be the glyph's real
+            // centre *before* anything is written. Startup runs ApplyDensity(..., animate: false)
+            // straight after InitializeComponent, before the first measure pass: ActualWidth /
+            // ActualHeight are still 0 there, and a (0, 0) centre turns the chevron around its
+            // top-left corner (the visible jump this fixes). Defer the rotation to SizeChanged
+            // instead of writing a wrong centre.
+            if (!ApplyChevronCenter(visual))
+            {
+                _pendingChevronTarget = target;
+                ShellLog.Write("chevron",
+                    $"expanded={expanded} target={target:0.###} deferred (glyph not measured yet)");
+                return;
+            }
+
+            _pendingChevronTarget = null;
+            ShellLog.Write("chevron", $"expanded={expanded} target={target:0.###} {ChevronState()}");
             if (!MotionEnabled())
             {
                 visual.RotationAngle = target;
@@ -599,7 +648,83 @@ namespace Predex.WinUI.Shell
                     new Vector2(0.23f, 1f), new Vector2(0.32f, 1f)));
             rotation.Duration = TimeSpan.FromMilliseconds(180);
             visual.StartAnimation("RotationAngle", rotation);
+
+            // --trace only: read the angle back once the 180 ms turn is over, so the log shows the
+            // value the compositor settled on instead of only the target that was requested.
+            if (ShellLog.Enabled) LogChevronSettled(visual, target);
         }
+
+        private void LogChevronSettled(Visual visual, float target)
+        {
+            try
+            {
+                DispatcherQueueTimer timer = DispatcherQueue.CreateTimer();
+                timer.Interval = TimeSpan.FromMilliseconds(240);
+                timer.IsRepeating = false;
+                timer.Tick += (DispatcherQueueTimer t, object _) =>
+                {
+                    t.Stop();
+                    try
+                    {
+                        ShellLog.Write("chevron",
+                            $"settled angle={visual.RotationAngle:0.###} (target {target:0.###}) {ChevronState()}");
+                    }
+                    catch { }
+                };
+                timer.Start();
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Copies the glyph's measured half-size into the composition visual's CenterPoint.
+        /// Returns false while the element has no size (before the first measure pass), so the
+        /// caller can defer rather than pivot around (0, 0).
+        /// </summary>
+        private bool ApplyChevronCenter(Visual visual)
+        {
+            double width = ExpandGlyph.ActualWidth;
+            double height = ExpandGlyph.ActualHeight;
+            if (width <= 0 || height <= 0) return false;
+
+            visual.CenterPoint = new Vector3((float)(width / 2), (float)(height / 2), 0f);
+            return true;
+        }
+
+        /// <summary>
+        /// One-time SizeChanged subscription. The size only exists after the first measure pass,
+        /// and it changes again with the density switch, so both events need the centre
+        /// recomputed — the first one is also where a deferred rotation is applied.
+        /// </summary>
+        private void HookChevronSize()
+        {
+            if (_chevronSizeHooked) return;
+            _chevronSizeHooked = true;
+            ExpandGlyph.SizeChanged += OnChevronSizeChanged;
+        }
+
+        private void OnChevronSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            Visual visual = ElementCompositionPreview.GetElementVisual(ExpandGlyph);
+            if (!ApplyChevronCenter(visual)) return;
+
+            if (_pendingChevronTarget is float pending)
+            {
+                // Startup path (animate: false): land on the requested angle without animating.
+                _pendingChevronTarget = null;
+                visual.RotationAngle = pending;
+                ShellLog.Write("chevron",
+                    $"size known, deferred target={pending:0.###} applied {ChevronState()}");
+                return;
+            }
+
+            ShellLog.Write("chevron", $"centre recomputed {ChevronState()}");
+        }
+
+        /// <summary>--trace diagnostics: the centre the rotation actually pivots around.</summary>
+        private string ChevronState() =>
+            $"center=({ExpandGlyph.ActualWidth / 2:0.##},{ExpandGlyph.ActualHeight / 2:0.##}) " +
+            $"size=({ExpandGlyph.ActualWidth:0.##}x{ExpandGlyph.ActualHeight:0.##})";
 
         // ── Keyboard / popup helpers ─────────────────────────────────────────────
         /// <summary>
@@ -607,9 +732,18 @@ namespace Predex.WinUI.Shell
         /// more, so the keyboard is one of the exits (the others: tray menu → 退出, and
         /// losing focus). Esc is skipped while a ComboBox drop-down / ContentDialog popup is
         /// open, because Esc belongs to that popup first.
+        ///
+        /// The accelerator stays on <c>RootGrid</c> — that is what makes Esc work no matter
+        /// which element (if any) has focus, which a KeyDown handler could not promise — but
+        /// its placement mode is forced to Hidden: with the default (Auto) WinUI shows the
+        /// gesture in a tooltip owned by the element the accelerator sits on, and RootGrid
+        /// covers the whole window, so hovering anywhere in the panel popped an "Esc" label.
+        /// Hidden keeps the key working and only drops that affordance.
         /// </summary>
         private void SetupEscapeToHide()
         {
+            RootGrid.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
+
             var escape = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Escape };
             escape.Invoked += (KeyboardAccelerator _, KeyboardAcceleratorInvokedEventArgs args) =>
             {
@@ -980,6 +1114,108 @@ namespace Predex.WinUI.Shell
             NavigateTo(target, userInitiated: false);
         }
 
+        // ── Window behaviour switches (Settings → General) ───────────────────────
+        // Always on Top  and  Special Key Wake. Both are stored in preysense.json
+        // (General.AlwaysOnTop / General.SpecialKeyWake, see Services\WindowBehaviorSettings.cs)
+        // and both are read once here at startup, so a restart keeps the user's answer.
+        private void LoadWindowBehavior()
+        {
+            WindowBehaviorSettings settings = WindowBehaviorStore.Read(PreySense.Core.Configuration.ConfigurationService.Instance);
+            _specialKeyWake = settings.SpecialKeyWake;
+            ApplyAlwaysOnTop(settings.AlwaysOnTop);
+            ShellLog.Write("window",
+                $"behaviour alwaysOnTop={_alwaysOnTop} specialKeyWake={_specialKeyWake}");
+        }
+
+        /// <summary>
+        /// Applies "Always on Top" to the live window. Called by the General page on every
+        /// toggle and once at startup.
+        ///
+        /// The z-order is set through the presenter the shell already owns
+        /// (OverlappedPresenter, configured in SetupWindowChrome) and read back — the same
+        /// write-then-verify discipline the hardware paths use, because a switch that claims
+        /// "on top" while the window is not is worse than no switch. If the presenter cannot do
+        /// it (not an overlapped presenter, or the property did not stick), the Win32
+        /// SetWindowPos(HWND_TOPMOST) fallback the shell already imports is used.
+        /// </summary>
+        public void ApplyAlwaysOnTop(bool on)
+        {
+            bool wasOn = _alwaysOnTop;
+
+            // Two writes on purpose, and both are needed:
+            //   • the presenter keeps WinUI's own window model in sync (otherwise a later
+            //     Show()/restore re-applies its idea of the z-order and silently undoes this);
+            //   • SetWindowPos(HWND_TOPMOST) is the authoritative z-order call for the WS_POPUP
+            //     window the shell created itself — OverlappedPresenter.IsAlwaysOnTop updates
+            //     its flag but does not set WS_EX_TOPMOST on the HWND, so the presenter alone
+            //     leaves the window in a state that cannot be read back.
+            bool presenterApplied = false;
+            try
+            {
+                if (AppWindow.Presenter is OverlappedPresenter presenter)
+                {
+                    presenter.IsAlwaysOnTop = on;
+                    presenterApplied = presenter.IsAlwaysOnTop == on;
+                }
+            }
+            catch (Exception ex)
+            {
+                ShellLog.Write("window", $"always on top via presenter failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            bool zOrderApplied = false;
+            IntPtr hwnd = Hwnd;
+            try
+            {
+                zOrderApplied = SetWindowPos(hwnd, on ? HwndTopmost : HwndNoTopmost, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            catch (Exception ex)
+            {
+                ShellLog.Write("window", $"always on top via SetWindowPos failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            _alwaysOnTop = on;
+            bool readback = IsTopmostNow(hwnd);
+            if (wasOn != on || !presenterApplied || !zOrderApplied || readback != on)
+            {
+                ShellLog.Write("window",
+                    $"always on top = {on} hwnd=0x{hwnd.ToInt64():X} readback={readback} " +
+                    $"(presenter={presenterApplied} setwindowpos={zOrderApplied}); " +
+                    $"auto-hide on focus loss = {WindowBehaviorPolicy.AutoHideAllowed(on, Predex.WinUI.App.NoAutoHide)}");
+            }
+        }
+
+        /// <summary>Reads WS_EX_TOPMOST back off the HWND (diagnostics / write-then-verify).</summary>
+        private static bool IsTopmostNow(IntPtr hwnd)
+            => (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+
+        /// <summary>
+        /// Applies "Special Key Wake" to the live window. Off means a Predator-key press no
+        /// longer summons the panel; the key is still consumed by the hook, so nothing else on
+        /// the machine acts on it either.
+        /// </summary>
+        public void SetSpecialKeyWake(bool on)
+        {
+            _specialKeyWake = on;
+            ShellLog.Write("window", $"special key wake = {on}");
+        }
+
+        /// <summary>
+        /// The Predator key (E0 75, KeyboardHookService) asks for the panel. With "Special Key
+        /// Wake" off the request is dropped here — this is the one vendor-hotkey path that
+        /// summons the window, so it is the one the switch has to gate.
+        /// </summary>
+        private void OnVendorHotkeyPressed()
+        {
+            if (!WindowBehaviorPolicy.ShouldSummonOnVendorHotkey(_specialKeyWake))
+            {
+                ShellLog.Write("window", "vendor hotkey ignored (special key wake is off)");
+                return;
+            }
+            ToggleVisibility();
+        }
+
         // ── Show / hide / quit ───────────────────────────────────────────────────
         public void ShowAndActivate()
         {
@@ -1000,6 +1236,11 @@ namespace Predex.WinUI.Shell
                 // page that was open when the window hid must come back at its own height.
                 PlaceBottomRight(WindowWidth, CurrentTargetHeightDip(_currentTag, CurrentPage()));
                 AppWindow.Show();
+                // Re-assert the persisted "Always on Top": OverlappedPresenter.IsAlwaysOnTop
+                // written while the window is still hidden does not survive the first Show()
+                // (verified on the live HWND), so the panel has to be re-pinned every time it
+                // comes back. ApplyAlwaysOnTop is idempotent and only logs on a real change.
+                if (_alwaysOnTop) ApplyAlwaysOnTop(true);
                 Activate();
                 ForceForeground();
                 PlayShowAnimation();
@@ -1091,13 +1332,30 @@ namespace Predex.WinUI.Shell
         {
             if (args.WindowActivationState == WindowActivationState.Deactivated)
             {
-                if (Predex.WinUI.App.NoAutoHide || _isExplicitExit) return;
+                if (_isExplicitExit) return;
+                // Always on Top / --no-autohide: the panel stays where it is. Without this check
+                // the topmost window would still close the moment the user clicks another app,
+                // which is exactly why the switch was marked unimplemented before.
+                if (!WindowBehaviorPolicy.AutoHideAllowed(_alwaysOnTop, Predex.WinUI.App.NoAutoHide))
+                {
+                    if (_alwaysOnTop && AppWindow.IsVisible)
+                        ShellLog.Write("window", "deactivated — staying visible (always on top)");
+                    return;
+                }
                 if (DateTime.UtcNow < _ignoreDeactivateUntil) return;
                 QueueAutoHide();
                 return;
             }
 
             _ignoreDeactivateUntil = DateTime.UtcNow.AddMilliseconds(400);
+            // Self-healing "Always on Top". Writing the flag while the window is still hidden
+            // does not survive the first Show() (the presenter re-applies its own z-order as
+            // the HWND becomes visible), and the re-assert inside ShowAndActivate runs one
+            // beat too early — measured on the live HWND: presenter=True, SetWindowPos=True,
+            // readback=False at both points, and only the *next* activation had the bit set.
+            // Re-asserting here is idempotent, costs nothing when the bit is already right,
+            // and covers every show path (startup, tray toggle, hotkey) instead of one.
+            if (_alwaysOnTop && !IsTopmostNow(Hwnd)) ApplyAlwaysOnTop(true);
             _services?.NotifyWindowShown();
             ViewModel.SetMainWindowTelemetryVisible(true);
         }
@@ -1119,13 +1377,19 @@ namespace Predex.WinUI.Shell
             {
                 timer.Stop();
                 timer.Tick -= AutoHideTick;
-                if (Predex.WinUI.App.NoAutoHide || _isExplicitExit) return;
-                if (!AppWindow.IsVisible) return;
-                if (IsAppForeground()) return;
-                // A drop-down / dialog popup means the user is still working in the window
-                // even when the foreground window is not ours (clicking a ComboBox must not
-                // hide the panel out from under the list).
-                if (HasOpenPopup()) return;
+                // One decision, shared with the Deactivated branch above: "on top" and
+                // --no-autohide both suppress the hide, a foreground window or an open
+                // drop-down/dialog suppresses it too (WindowBehaviorPolicy has the whole rule).
+                if (!WindowBehaviorPolicy.ShouldHideAfterDeactivate(
+                        _alwaysOnTop,
+                        Predex.WinUI.App.NoAutoHide,
+                        _isExplicitExit,
+                        AppWindow.IsVisible,
+                        IsAppForeground(),
+                        HasOpenPopup()))
+                {
+                    return;
+                }
                 HideWindow("deactivated");
             }
         }

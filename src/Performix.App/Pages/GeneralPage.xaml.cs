@@ -10,7 +10,11 @@
 //   Run on Startup  OneWay IsOn + mirror into the VM + command (the command reads its own
 //                   state as the target value, so a TwoWay echo would double-toggle).
 //   Always on Top / Special Key Wake
-//                   disabled rows: no implementation behind them (see the XAML comment).
+//                   real switches: each one applies to the live shell window first (so the
+//                   switch never lies) and is then persisted into preysense.json through
+//                   Services\WindowBehaviorSettings.cs. The page owns no copy of the state —
+//                   it re-reads the configuration on every Loaded, because the shell drops the
+//                   page tree while hidden and rebuilds this page on the next show.
 //   On Battery/AC   the index is pushed into the combo by SyncPowerModeSelection once the item
 //                   list exists, and a user selection writes it back to the ViewModel (which
 //                   persists it) — no command, and no TwoWay SelectedIndex (see that method for
@@ -33,19 +37,27 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+// The window-behaviour switches (Always on Top / Special Key Wake) are configuration-backed and
+// live in Predex.WinUI.Services; aliased so this file never has to spell the namespace out and
+// cannot collide with the same-named types in PreySense.Frontend.Services.
+using WindowBehaviorSettings = Predex.WinUI.Services.WindowBehaviorSettings;
+using WindowBehaviorStore = Predex.WinUI.Services.WindowBehaviorStore;
 
 namespace Predex.WinUI.Pages
 {
     /// <summary>
     /// General settings: language / run on startup / always on top / special key wake, plus the
     /// Power Configuration group (on battery, on AC, USB power-off charging, battery limit,
-    /// energy saver). Bound against <see cref="MainViewModel"/>.
+    /// energy saver). Bound against <see cref="MainViewModel"/>; the two window-behaviour
+    /// switches are configuration-backed instead (see the Always on Top region below).
     /// </summary>
     public sealed partial class GeneralPage : Page, INotifyPropertyChanged, IPredexPage
     {
         private bool _syncingLanguageSelection;
         private bool _syncingUsbCharging;
         private bool _syncingPowerMode;
+        /// <summary>True while the two window-behaviour switches are written from the file.</summary>
+        private bool _syncingWindowBehavior;
 
         public GeneralPage()
         {
@@ -107,6 +119,7 @@ namespace Predex.WinUI.Pages
             LocalizationService.LanguageChanged += OnLanguageChanged;
             BuildLanguageItems();
             BuildPowerModeItems();
+            SyncWindowBehaviorSwitches();
             _ = SyncFromViewModelAsync();
         }
 
@@ -275,6 +288,90 @@ namespace Predex.WinUI.Pages
             vm.IsRunOnStartupEnabled = toggle.IsOn;
             try { await vm.ToggleRunOnStartupCommand.ExecuteAsync(null); }
             finally { Bindings.Update(); }
+        }
+
+        // ── Always on Top / Special Key Wake ─────────────────────────────────────
+        // Both switches are configuration-backed, not ViewModel-backed: the window behaviour
+        // they control belongs to the shell (ShellWindow owns the HWND), and the value has to
+        // be right before the first window is shown, which is why it lives in preysense.json
+        // next to General.RunOnStartup instead of in a page-local field.
+        //
+        // Order matters on a toggle: apply to the live window first, persist second. A failed
+        // write then leaves the window doing what the switch shows, and the next launch
+        // re-applies the file value — never the reverse (a switch that says "on top" while the
+        // window is not is exactly the fake feature the disabled rows were removed for).
+
+        /// <summary>Pulls the persisted values into the two switches without echoing back.</summary>
+        private void SyncWindowBehaviorSwitches()
+        {
+            if (ChkAlwaysOnTop is null || ChkSpecialKeyWake is null) return;
+
+            WindowBehaviorSettings settings;
+            try
+            {
+                settings = WindowBehaviorStore.Read(PreySense.Core.Configuration.ConfigurationService.Instance);
+            }
+            catch (Exception ex)
+            {
+                Predex.WinUI.Services.ShellLog.Write("general", $"window behaviour read failed: {ex.Message}");
+                settings = new WindowBehaviorSettings();
+            }
+
+            _syncingWindowBehavior = true;
+            try
+            {
+                ChkAlwaysOnTop.IsOn = settings.AlwaysOnTop;
+                ChkSpecialKeyWake.IsOn = settings.SpecialKeyWake;
+            }
+            finally { _syncingWindowBehavior = false; }
+        }
+
+        private void AlwaysOnTop_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_syncingWindowBehavior || sender is not ToggleSwitch toggle) return;
+            bool on = toggle.IsOn;
+
+            try { Predex.WinUI.App.CurrentShell?.ApplyAlwaysOnTop(on); }
+            catch (Exception ex)
+            {
+                Predex.WinUI.Services.ShellLog.Write("general", $"always on top apply failed: {ex.Message}");
+            }
+            PersistWindowBehavior(settings => settings.AlwaysOnTop = on);
+        }
+
+        private void SpecialKeyWake_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_syncingWindowBehavior || sender is not ToggleSwitch toggle) return;
+            bool on = toggle.IsOn;
+
+            try { Predex.WinUI.App.CurrentShell?.SetSpecialKeyWake(on); }
+            catch (Exception ex)
+            {
+                Predex.WinUI.Services.ShellLog.Write("general", $"special key wake apply failed: {ex.Message}");
+            }
+            PersistWindowBehavior(settings => settings.SpecialKeyWake = on);
+        }
+
+        /// <summary>
+        /// Read-modify-write of the two General fields, so the other General values (language,
+        /// startup answer) are never lost. A configuration that cannot be written is logged and
+        /// swallowed: the switch already did its job for this session.
+        /// </summary>
+        private static void PersistWindowBehavior(Action<WindowBehaviorSettings> mutate)
+        {
+            try
+            {
+                var service = PreySense.Core.Configuration.ConfigurationService.Instance;
+                WindowBehaviorSettings settings = WindowBehaviorStore.Read(service);
+                mutate(settings);
+                WindowBehaviorStore.Write(service, settings);
+                Predex.WinUI.Services.ShellLog.Write("general",
+                    $"window behaviour saved alwaysOnTop={settings.AlwaysOnTop} specialKeyWake={settings.SpecialKeyWake}");
+            }
+            catch (Exception ex)
+            {
+                Predex.WinUI.Services.ShellLog.Write("general", $"window behaviour save failed: {ex.Message}");
+            }
         }
 
         // ── Battery Limit (WPF: OneWay IsChecked + command flips the state) ─────

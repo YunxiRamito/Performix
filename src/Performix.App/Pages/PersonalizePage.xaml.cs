@@ -4,9 +4,10 @@
 // applied immediately (no Apply button), logged to shell.log by the service, and persisted to
 // %LOCALAPPDATA%\Predex\appearance.json. Nothing here touches hardware or preysense.json.
 //
-// Card 2 · Interface owns the four panel-row switches. They are stored by the same service
-// (AppearanceService.SetUiPanel → the "UiPanels" object of appearance.json) so no new config
-// file appears; HomePage subscribes to AppearanceService.UiPanelsChanged and hides the row.
+// Card 2 · Interface owns the four panel-row switches, plus the four fields of the status bar.
+// They are stored by the same service (AppearanceService.SetUiPanel → the "UiPanels" object of
+// appearance.json) so no new config file appears; HomePage subscribes to
+// AppearanceService.UiPanelsChanged, hides its row or re-renders its fields.
 //
 // State → UI is pulled on Loaded and after every change (SyncFromState + Bindings.Update),
 // because the tile colours are x:Bind *style* bindings over page properties:
@@ -81,6 +82,23 @@ namespace Predex.WinUI.Pages
             => ApplyPanelSwitch(UiPanel.WidgetBar, sender);
 
         /// <summary>
+        /// The four fields of the status bar. Same write path as the row switches (SetUiPanel →
+        /// appearance.json → UiPanelsChanged → HomePage re-renders the line), which is why they
+        /// need no store of their own. The enum name travels in Tag so the four CheckBoxes can
+        /// share one handler.
+        /// </summary>
+        private void StatusField_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_syncing) return;
+            if (sender is not CheckBox box || box.Tag is not string tag) return;
+            if (!Enum.TryParse(tag, ignoreCase: true, out UiPanel field)) return;
+
+            bool on = box.IsChecked == true;
+            if (on == AppearanceService.IsUiPanelVisible(field)) return;
+            AppearanceService.SetUiPanel(field, on);
+        }
+
+        /// <summary>
         /// One write path for all four switches. A Toggled raised by SyncUiPanels is an echo,
         /// not a click, so it is compared with the stored flag first (same rule as the General
         /// page's switches). HomePage re-reads the flag through UiPanelsChanged.
@@ -103,6 +121,11 @@ namespace Predex.WinUI.Pages
                 ChkUiGpuBar.IsOn = AppearanceService.IsUiPanelVisible(UiPanel.GpuBar);
                 ChkUiRefreshRateBar.IsOn = AppearanceService.IsUiPanelVisible(UiPanel.RefreshRateBar);
                 ChkUiWidgetBar.IsOn = AppearanceService.IsUiPanelVisible(UiPanel.WidgetBar);
+
+                ChkStatusTemperature.IsChecked = AppearanceService.IsUiPanelVisible(UiPanel.StatusBarTemperature);
+                ChkStatusUsage.IsChecked = AppearanceService.IsUiPanelVisible(UiPanel.StatusBarUsage);
+                ChkStatusFrequency.IsChecked = AppearanceService.IsUiPanelVisible(UiPanel.StatusBarFrequency);
+                ChkStatusFan.IsChecked = AppearanceService.IsUiPanelVisible(UiPanel.StatusBarFan);
             }
             finally { _syncing = false; }
         }

@@ -54,6 +54,22 @@
           "type": "boolean",
           "description": "Enables optional driver-based tuning controls; this is not a measured hardware state.",
           "title": "Hardware Tuning Enabled"
+        },
+        "AutoUpdate": {
+          "type": "boolean",
+          "description": "The Automatic updates switch on the Update page. True (the default) checks for a new build after startup, downloads and verifies it, then installs it once the machine is idle and the app has announced the restart. False keeps the update path completely offline: no check, no download.",
+          "title": "Automatic Updates",
+          "default": true
+        },
+        "AlwaysOnTop": {
+          "type": "boolean",
+          "description": "Keeps the shell panel above other windows. While on, the panel no longer hides itself when it loses focus.",
+          "title": "Always on Top"
+        },
+        "SpecialKeyWake": {
+          "type": "boolean",
+          "description": "A vendor hotkey press (the Predator key) summons the panel. True is the behaviour before the switch existed.",
+          "title": "Special Key Wake"
         }
       },
       "title": "General"

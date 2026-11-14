@@ -44,6 +44,19 @@ namespace Predex.WinUI.Services.Update
 
         public static bool IsInitialized => _initialized;
 
+        /// <summary>
+        /// Set by <see cref="UpdateAutoRunner"/>: asked once, right after a package is verified,
+        /// whether this is a good moment to restart into the new build. It resolves true when the
+        /// machine has been idle long enough and the restart has been announced, false when the
+        /// user is busy or the feature was switched off — in which case the session stops at
+        /// ReadyToInstall and the Update page's button finishes the job.
+        ///
+        /// The session itself never decides this: "is the user busy?" belongs to the runner (it
+        /// reads input idle time, the dialog state and the shell's busy flag), and keeping the
+        /// decision behind a delegate is what lets the whole automatic path be unit-tested.
+        /// </summary>
+        public static Func<CancellationToken, Task<bool>>? AutoInstallGate { get; set; }
+
         public static UpdateStateMachine Machine
         {
             get
@@ -176,8 +189,73 @@ namespace Predex.WinUI.Services.Update
         }
 
         /// <summary>
-        /// "重试" on a failed card: a failed check re-runs the check, a failed download /
-        /// verification / install goes back to Available (through the state machine) and starts
+        /// One automatic check, silent by contract: a background failure never reaches the page.
+        ///
+        /// WHY A SEPARATE ENTRY: <see cref="CheckAsync"/> is the manual path — it moves the card
+        /// to Checking and then to Failed with a stage and a reason, because a user who pressed
+        /// "检查更新" must be told what happened. The automatic loop runs while the user is doing
+        /// something else, so a failed background check may only be logged (docs\UPDATE-DESIGN.md
+        /// §4.1: 自动检查失败静默). A SUCCESSFUL check is applied exactly like a manual one, so a
+        /// newer release still turns the page into "有新版" on its own.
+        ///
+        /// Returns true when a release was found and applied. The machine is only touched after
+        /// the network call succeeded, and only while it is still in a state that may be checked.
+        /// </summary>
+        public static async Task<bool> CheckSilentlyAsync()
+        {
+            UpdateClient? client;
+            string channel;
+            lock (Gate)
+            {
+                if (_client is null)
+                {
+                    ShellLog.Write("update", "auto check skipped: session not initialized");
+                    return false;
+                }
+                client = _client;
+                channel = Machine.Channel;
+            }
+
+            UpdateCheckResult result;
+            try
+            {
+                result = await client.CheckAsync(channel, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Silent on purpose: this is a background check, not an answer to a user action.
+                ShellLog.Write("update",
+                    $"auto check failed silently ({ex.GetType().Name}: {ex.Message}) — the next interval retries");
+                return false;
+            }
+
+            if (!result.HasRelease)
+            {
+                ShellLog.Write("update",
+                    $"auto check: no release ({result.FailureReason ?? "unavailable"}) — nothing shown to the user");
+                return false;
+            }
+
+            lock (Gate)
+            {
+                UpdateStateMachine machine = Machine;
+                if (!machine.BeginCheck())
+                {
+                    ShellLog.Write("update",
+                        $"auto check result dropped: state={machine.State} (a manual action owns the card)");
+                    return false;
+                }
+                machine.ApplyCheck(result);
+                ShellLog.Write("update",
+                    $"auto check: version={result.Manifest?.Version} newer={machine.IsNewer} state={machine.State}");
+            }
+
+            RaiseChanged();
+            return true;
+        }
+
+        /// <summary>
+        /// "重试" on a failed card: a failed check re-runs the check, a failed download /        /// verification / install goes back to Available (through the state machine) and starts
         /// the transfer again. The page never decides this for itself.
         /// </summary>
         public static Task RetryAsync()
@@ -204,8 +282,14 @@ namespace Predex.WinUI.Services.Update
         /// entry; a state that cannot download (Idle, Checking, a failed check, the minVersion
         /// gate) is logged and refused instead of silently transferring in the background. The
         /// rotation path therefore really is in Downloading — the cancel button works there.
+        ///
+        /// AUTO INSTALL: <paramref name="autoInstall"/> = the automatic loop asked for this
+        /// download. It changes exactly one thing — after the package is verified, the session
+        /// waits for <see cref="AutoInstallGate"/> instead of starting the replacement script
+        /// immediately. A manual "下载并安装" click keeps the old behaviour (it is the user's own
+        /// decision, made with the page in front of them).
         /// </summary>
-        public static async Task DownloadAsync(bool rotateSource = false)
+        public static async Task DownloadAsync(bool rotateSource = false, bool autoInstall = false)
         {
             UpdateClient client;
             UpdateStateMachine machine;
@@ -253,7 +337,7 @@ namespace Predex.WinUI.Services.Update
 
             try
             {
-                await RunDownloadAsync(client, machine, asset, source, cancellation, rotateSource).ConfigureAwait(false);
+                await RunDownloadAsync(client, machine, asset, source, cancellation, rotateSource, autoInstall).ConfigureAwait(false);
             }
             finally
             {
@@ -262,7 +346,8 @@ namespace Predex.WinUI.Services.Update
         }
 
         private static async Task RunDownloadAsync(UpdateClient client, UpdateStateMachine machine,
-            UpdateAsset? asset, UpdateSource? source, CancellationTokenSource cancellation, bool rotateSource)
+            UpdateAsset? asset, UpdateSource? source, CancellationTokenSource cancellation, bool rotateSource,
+            bool autoInstall)
         {
             if (asset is null)
             {
@@ -344,6 +429,48 @@ namespace Predex.WinUI.Services.Update
                 // never touch the real installation from a test feed.
                 ShellLog.Write("update", "install suppressed (test feed): stopping at ReadyToInstall");
                 return;
+            }
+
+            // The automatic path asks before it takes the app down. A manual click does not: the
+            // user pressed the button, so the replacement starts immediately (unchanged).
+            if (autoInstall)
+            {
+                Func<CancellationToken, Task<bool>>? gate = AutoInstallGate;
+                if (gate is null)
+                {
+                    ShellLog.Write("update",
+                        "auto install requested but no gate is installed: stopping at ReadyToInstall");
+                    return;
+                }
+
+                bool mayInstall;
+                try
+                {
+                    mayInstall = await gate(cancellation.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    ShellLog.Write("update", "auto install cancelled while waiting for a quiet moment");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    ShellLog.Write("update", $"auto install gate failed: {ex.GetType().Name}: {ex.Message}");
+                    return;
+                }
+
+                if (!mayInstall)
+                {
+                    // The package stays verified: the Update page's primary button installs it,
+                    // and the next automatic cycle will not re-download it either (the check
+                    // finds the same version, the card goes straight back to ReadyToInstall).
+                    ShellLog.Write("update",
+                        "auto install postponed (the machine was not quiet): staying at ReadyToInstall");
+                    RaiseChanged();
+                    return;
+                }
+
+                ShellLog.Write("update", "auto install confirmed: starting the replacement script");
             }
 
             UpdateInstallStart start = UpdateInstaller.Start(download.FilePath, asset, machine);

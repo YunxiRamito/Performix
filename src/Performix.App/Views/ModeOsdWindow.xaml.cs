@@ -23,12 +23,18 @@
 //
 //  • Host window (spec §1): borderless, WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW, always on top,
 //    not in the taskbar/Alt+Tab, never takes focus.
-//  • Placement: horizontally centred on DisplayArea.Primary.WorkArea, card bottom 24 DIP
-//    above the work-area bottom.
+//  • Placement: horizontally centred on the primary display's work area, card bottom 24 DIP
+//    above the work-area bottom (the arithmetic lives in ModeOsdPlacement.cs).
 //  • ONE HWND (spec §3): the window, its XAML island and the Composition visuals are created
 //    on the first confirmed mode change and reused for the rest of the process. A repeated
 //    Show only swaps glyph+text and replays the icon animation — it never re-plays the entry
 //    animation, never re-creates the window.
+//  • LIVE GEOMETRY, not a snapshot: the HWND outliving the display mode is exactly why the
+//    work area, the DPI and therefore the DIP→px scale are re-read on every Show (and the
+//    overlay is re-anchored when they change while it is on screen). A resolution or
+//    refresh-rate switch used to leave the card on the old work-area bottom — off-screen or
+//    clipped after dropping to a smaller mode. See RefreshDisplay / ApplyLayout /
+//    ReanchorAfterDisplayChange and the `osd: geometry:` trace line they write.
 //  • Icon motion (spec §5) is a Composition animation on the icon visual only (Translation /
 //    Opacity / Scale, CenterPoint fixed at (10,10,0)), one iteration, delayed 83 ms.
 //  • Dwell 3000 ms (DispatcherQueueTimer) from the end of the entry; hover pauses it; a switch
@@ -70,17 +76,8 @@ namespace Predex.WinUI.Views
     public sealed partial class ModeOsdWindow : Window
     {
         // ── Spec geometry (DIP) ──────────────────────────────────────────────────
-        /// <summary>Spec §1: fixed card height.</summary>
-        private const float CardHeightDip = 48f;
-        /// <summary>Spec §1: card width is content-driven between these two bounds.</summary>
-        private const float CardMinWidthDip = 160f;
-        private const float CardMaxWidthDip = 280f;
-        /// <summary>Spec §1: 16 DIP padding on each side of the content.</summary>
-        private const float CardPaddingDip = 32f;
-        /// <summary>Spec §1: icon 20×20 plus the 12 DIP gap to the text.</summary>
-        private const float IconAndGapDip = 32f;
-        /// <summary>Spec §1: card sits 24 DIP above the work-area bottom.</summary>
-        private const float BottomMarginDip = 24f;
+        // The card rectangle (height, width bounds, padding, bottom margin) lives in
+        // ModeOsdPlacement.cs so the same numbers can be unit-tested off a WinUI host.
         /// <summary>Spec §2: entry slide starts 24 DIP below the rest position.</summary>
         private const float EntrySlideDip = 24f;
         /// <summary>Spec §4: exit slide moves 16 DIP down.</summary>
@@ -127,6 +124,12 @@ namespace Predex.WinUI.Views
             public double AlphaMs;
             public double AlphaX1 = LinearX1, AlphaY1 = LinearY1, AlphaX2 = LinearX2, AlphaY2 = LinearY2;
             public Action? OnDone;
+            /// <summary>
+            /// True when both endpoints were derived from the rest position (the entry slide), so a
+            /// display change has to shift the whole path. False for the exit/restore slides, whose
+            /// start is "wherever the card is right now" — those only retarget their end point.
+            /// </summary>
+            public bool RestAnchored;
         }
 
         private readonly IntPtr _hwnd;
@@ -148,9 +151,18 @@ namespace Predex.WinUI.Views
         private int _restY;
         private double _winAlpha = 1.0;
 
+        // Last resolved primary display (work area + effective DPI) and the DIP width the current
+        // title measured to. Re-resolved before every Show — never carried across a resolution,
+        // refresh-rate, DPI or display-topology change.
+        private OsdDisplay _display = new(0, 0, 0, 0, ModeOsdPlacement.BaseDpi);
+        private bool _displayKnown;
+        private double _textWidthDip;
+        private double _cardWidthDip = ModeOsdPlacement.CardMinWidthDip;
+
         private WindowMotion? _motion;
         private readonly Stopwatch _motionClock = new();
         private bool _renderingHooked;
+        private SubclassProc? _subclass;
 
         private Phase _phase = Phase.Hidden;
         private bool _hovered;
@@ -246,6 +258,7 @@ namespace Predex.WinUI.Views
         private void OnClosed(object sender, WindowEventArgs args)
         {
             Trace("window closed");
+            RemoveDisplayChangeHook();
             StopMotion();
             if (ReferenceEquals(_instance, this)) _instance = null;
         }
@@ -260,9 +273,18 @@ namespace Predex.WinUI.Views
         [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out WinRect rect);
         [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(WinPoint point, uint flags);
+        [DllImport("user32.dll")] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
         [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
         [DllImport("user32.dll")] private static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint colorKey, byte alpha, uint flags);
         [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hWnd, uint attr, ref int attrValue, int size);
+        [DllImport("comctl32.dll", SetLastError = true)]
+        private static extern bool SetWindowSubclass(IntPtr hWnd, SubclassProc pfn, UIntPtr id, UIntPtr refData);
+        [DllImport("comctl32.dll")]
+        private static extern bool RemoveWindowSubclass(IntPtr hWnd, SubclassProc pfn, UIntPtr id);
+        [DllImport("comctl32.dll")]
+        private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        private delegate IntPtr SubclassProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr refData);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct WinRect { public int Left, Top, Right, Bottom; }
@@ -270,8 +292,24 @@ namespace Predex.WinUI.Views
         [StructLayout(LayoutKind.Sequential)]
         private struct WinPoint { public int X, Y; }
 
-        private const uint MonitorDefaultToNearest = 0x00000002;
+        /// <summary>MONITORINFO — RECT order is Left/Top/Right/Bottom, same as <see cref="WinRect"/>.</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MonitorInfo
+        {
+            public int Size;
+            public WinRect Monitor;
+            public WinRect Work;
+            public uint Flags;
+        }
+
+        private const uint MonitorDefaultToPrimary = 0x00000001;
         private const int MdtEffectiveDpi = 0;
+
+        /// <summary>Desktop size / topology changed (resolution, refresh rate, monitor plug).</summary>
+        private const uint WM_DISPLAYCHANGE = 0x007E;
+        /// <summary>This window moved onto a monitor with a different DPI (or that DPI changed).</summary>
+        private const uint WM_DPICHANGED = 0x02E0;
+        private static readonly UIntPtr SubclassId = new(0x4F5344);   // 'OSD'
 
         private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;
@@ -340,70 +378,234 @@ namespace Predex.WinUI.Views
             Trace($"chrome: ex 0x{exStyle:X8} → 0x{newExStyle:X8} " +
                   "(NOACTIVATE|TOOLWINDOW|LAYERED), " +
                   $"style 0x{style:X8} → 0x{popup:X8} (WS_POPUP), DWM round corners, LWA_ALPHA fade");
+
+            InstallDisplayChangeHook();
         }
 
         /// <summary>
-        /// Effective DPI of the primary display — where the overlay is placed. Deliberately not
-        /// <c>GetDpiForWindow</c>: a window that has never been shown reports 96 on its first
-        /// frame, which produced a 160×48 px card at the wrong coordinates on a 150 % display
-        /// (one observed run); the monitor query is deterministic regardless of window state.
+        /// Subclasses the OSD HWND so a display change that lands *while the card is on screen*
+        /// is noticed at once. This is the half of the bug a "recompute before every Show" fix
+        /// cannot cover: the card dwells for 3 s and the exit slides from the old rest position,
+        /// so a resolution / DPI switch during those 3.2 s left it parked on the work area of the
+        /// previous mode — measured 990 px below the new screen bottom on this machine.
+        ///
+        /// WM_DISPLAYCHANGE covers resolution, refresh-rate and topology changes; WM_DPICHANGED
+        /// covers a DPI change (Windows rescales and moves the window itself in that case, which
+        /// is why the re-anchor has to re-read the real window rect instead of trusting its own).
         /// </summary>
-        private int Dpi
+        private void InstallDisplayChangeHook()
         {
-            get
+            if (_subclass is not null) return;
+            _subclass = OnOsdWindowMessage;
+            if (!SetWindowSubclass(_hwnd, _subclass, SubclassId, UIntPtr.Zero))
             {
-                var work = DisplayArea.Primary.WorkArea;
-                var center = new WinPoint { X = work.X + (work.Width / 2), Y = work.Y + (work.Height / 2) };
-                IntPtr monitor = MonitorFromPoint(center, MonitorDefaultToNearest);
-                if (monitor != IntPtr.Zero &&
-                    GetDpiForMonitor(monitor, MdtEffectiveDpi, out uint dpiX, out _) == 0 && dpiX >= 96)
-                {
-                    return (int)dpiX;
-                }
-                return (int)Math.Max(96u, GetDpiForWindow(_hwnd));
+                _subclass = null;
+                Trace("display-change hook: SetWindowSubclass failed, falling back to per-Show refresh only");
+            }
+            else
+            {
+                Trace("display-change hook: WM_DISPLAYCHANGE / WM_DPICHANGED armed");
             }
         }
 
-        private int ScaleDip(double dip) => (int)Math.Round(dip * Dpi / 96.0);
+        private void RemoveDisplayChangeHook()
+        {
+            if (_subclass is null) return;
+            try { RemoveWindowSubclass(_hwnd, _subclass, SubclassId); } catch { }
+            _subclass = null;
+        }
+
+        private IntPtr OnOsdWindowMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam,
+                                          UIntPtr id, UIntPtr refData)
+        {
+            if (msg == WM_DISPLAYCHANGE || msg == WM_DPICHANGED)
+            {
+                // Defer: during the message the work area and the DPI can still be the old ones,
+                // and DefWindowProc applies its own rescale to the WM_DPICHANGED rect after we
+                // return. Re-anchoring from the dispatcher queue sees the settled values.
+                _queue?.TryEnqueue(() => OnDisplayChanged(msg == WM_DPICHANGED ? "WM_DPICHANGED" : "WM_DISPLAYCHANGE"));
+            }
+            return DefSubclassProc(hWnd, msg, wParam, lParam);
+        }
+
+        /// <summary>Display moved under a visible card: re-measure, re-place, retarget the slide.</summary>
+        private void OnDisplayChanged(string source)
+        {
+            if (_phase == Phase.Hidden) return;      // the next Show refreshes anyway
+
+            bool changed = RefreshDisplay();
+            // Even when the work area reads the same, Windows may have rescaled the window on a
+            // DPI change; re-applying the rect is cheap and puts the card back where it belongs.
+            Trace($"{source}: card on screen (phase {_phase}), geometry changed={changed}");
+            ReanchorAfterDisplayChange();
+        }
 
         /// <summary>
-        /// Sizes the window to the measured card: height fixed at 48 DIP (spec §1), width from
-        /// the text and clamped to 160–280 DIP (spec §1). Runs before the window is placed, so
-        /// the window never resizes while it is on screen.
+        /// Live work area + effective DPI of the primary display — where the overlay is placed.
+        ///
+        /// WHY GetMonitorInfo AND NOT DisplayArea.Primary: the two are read from the *same*
+        /// monitor handle here, so the work area and the DPI can never describe two different
+        /// display states, and GetMonitorInfo is documented to reflect a mode change as soon as
+        /// WM_DISPLAYCHANGE has been handled. DisplayArea.Primary is kept as a fallback only.
+        ///
+        /// WHY NOT GetDpiForWindow AS THE PRIMARY SOURCE: a window that has never been shown
+        /// reports 96 on its first frame, which produced a 160×48 px card at the wrong
+        /// coordinates on a 150 % display (one observed run). The monitor query is deterministic
+        /// regardless of window state; GetDpiForWindow stays as the last-resort fallback.
+        ///
+        /// The primary display always owns the virtual-screen origin, so (0,0) identifies it;
+        /// MONITOR_DEFAULTTOPRIMARY covers a topology where it somehow does not.
         /// </summary>
-        private float MeasureCardWidthDip()
+        private OsdDisplay QueryDisplay()
         {
-            double textWidth = 0;
+            IntPtr monitor = MonitorFromPoint(new WinPoint { X = 0, Y = 0 }, MonitorDefaultToPrimary);
+            if (monitor != IntPtr.Zero)
+            {
+                var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+                if (GetMonitorInfo(monitor, ref info))
+                {
+                    int dpi = 0;
+                    if (GetDpiForMonitor(monitor, MdtEffectiveDpi, out uint dpiX, out _) == 0 && dpiX >= ModeOsdPlacement.BaseDpi)
+                        dpi = (int)dpiX;
+                    else
+                        dpi = (int)Math.Max((uint)ModeOsdPlacement.BaseDpi, GetDpiForWindow(_hwnd));
+
+                    return new OsdDisplay(
+                        info.Work.Left, info.Work.Top,
+                        info.Work.Right - info.Work.Left, info.Work.Bottom - info.Work.Top,
+                        dpi);
+                }
+            }
+
+            // Fallback: the WinAppSDK's view of the primary display. Same numbers in the normal
+            // case; it is only reached if the monitor query itself failed.
+            var work = DisplayArea.Primary.WorkArea;
+            return new OsdDisplay(
+                work.X, work.Y, work.Width, work.Height,
+                (int)Math.Max((uint)ModeOsdPlacement.BaseDpi, GetDpiForWindow(_hwnd)));
+        }
+
+        /// <summary>
+        /// Re-resolves the display and reports whether the work area / DPI moved since the last
+        /// call. Called before every Show, and by the re-anchor path while the card is visible.
+        /// A degenerate result (0×0 — the monitor is momentarily gone during a mode set) keeps
+        /// the last good geometry instead of placing the card at the origin.
+        /// </summary>
+        private bool RefreshDisplay()
+        {
+            OsdDisplay resolved = QueryDisplay();
+            if (!resolved.IsUsable)
+            {
+                if (_displayKnown) return false;
+                resolved = new OsdDisplay(0, 0, 1920, 1080, ModeOsdPlacement.BaseDpi);
+            }
+
+            OsdDisplay previous = _display;
+            bool changed = _displayKnown && resolved != previous;
+            _display = resolved;
+            _displayKnown = true;
+
+            if (changed)
+            {
+                Trace($"display changed: {previous.Describe()} -> {resolved.Describe()}");
+            }
+            return changed;
+        }
+
+        private int ScaleDip(double dip) => ModeOsdPlacement.ScaleDip(dip, _display.Dpi);
+
+        /// <summary>Measured width of the mode name, in DIP (0 if the text has never been laid out).</summary>
+        private double MeasureTextWidthDip()
+        {
             try
             {
                 ModeText.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
-                textWidth = ModeText.DesiredSize.Width;
+                return ModeText.DesiredSize.Width;
             }
-            catch (Exception ex) { Trace($"text measure failed: {ex.Message}"); }
-
-            double width = CardPaddingDip + IconAndGapDip + textWidth;
-            return (float)Math.Clamp(width, CardMinWidthDip, CardMaxWidthDip);
-        }
-
-        private void SizeWindow(float widthDip)
-        {
-            _winW = ScaleDip(widthDip);
-            _winH = ScaleDip(CardHeightDip);
+            catch (Exception ex)
+            {
+                Trace($"text measure failed: {ex.Message}");
+                return 0;
+            }
         }
 
         /// <summary>
-        /// Spec §1 placement: horizontally centred on the primary work area, card bottom 24 DIP
-        /// above its bottom edge. Only computes the rect — the caller decides which Y to apply,
-        /// so the window is never briefly shown at the wrong position.
+        /// Spec §1 placement from the *live* display: horizontally centred on the primary work
+        /// area, card bottom 24 DIP above its bottom edge, clamped so the card never hangs off
+        /// the work area (a smaller resolution or a taller taskbar shrinks the margin, then the
+        /// card, instead of clipping it). Only computes the rect — the caller decides which Y to
+        /// apply, so the window is never briefly shown at the wrong position.
         /// </summary>
-        private void ComputePlacement()
+        /// <param name="remeasureText">
+        /// True on a Show (the title may have changed). False on a re-anchor: the text is the same
+        /// element with the same string, and its DIP width does not depend on the display — so the
+        /// cached value is reused and no XAML measure runs from inside a display-change callback.
+        /// </param>
+        private void ApplyLayout(bool remeasureText)
         {
-            if (_winW <= 0) _winW = ScaleDip(CardMaxWidthDip);
-            if (_winH <= 0) _winH = ScaleDip(CardHeightDip);
+            // _cardWidthDip is the card (padding included); Compute takes the *text* width and
+            // applies that padding itself — passing the card width there double-counts it.
+            if (remeasureText) _textWidthDip = MeasureTextWidthDip();
+            _cardWidthDip = ModeOsdPlacement.CardWidthDip(_textWidthDip);
+            OsdPlacement placement = ModeOsdPlacement.Compute(_textWidthDip, _display);
+            _winW = placement.Width;
+            _winH = placement.Height;
+            _winX = placement.X;
+            _restY = placement.RestY;
 
-            var work = DisplayArea.Primary.WorkArea;
-            _winX = work.X + ((work.Width - _winW) / 2);
-            _restY = work.Y + work.Height - ScaleDip(BottomMarginDip) - _winH;
+            // The one line that makes a resolution switch auditable: what the display is now,
+            // what the card measures in DIP, and the px rect it turns into. DisplayArea.Primary
+            // is printed alongside so a stale WinAppSDK view would show up as a mismatch.
+            Trace($"geometry: {_display.Describe()} card={_cardWidthDip:0.#}x{ModeOsdPlacement.CardHeightDip:0} DIP " +
+                  $"(text {_textWidthDip:0.#}{(remeasureText ? string.Empty : ", cached")}) -> {placement.Describe()} " +
+                  $"(bottom margin {ScaleDip(ModeOsdPlacement.BottomMarginDip)} px) [{DescribeDisplayArea()}]");
+        }
+
+        /// <summary>The WinAppSDK's own view of the primary display, for the geometry trace only.</summary>
+        private static string DescribeDisplayArea()
+        {
+            try
+            {
+                var work = DisplayArea.Primary.WorkArea;
+                return $"DisplayArea.Primary=({work.X},{work.Y} {work.Width}x{work.Height})";
+            }
+            catch (Exception ex)
+            {
+                return $"DisplayArea.Primary=<{ex.GetType().Name}>";
+            }
+        }
+
+        /// <summary>
+        /// The display moved under a card that is already on screen (resolution / refresh-rate /
+        /// DPI / monitor change during the 3 s dwell, or during a 250 ms slide). The window rect is
+        /// recomputed from the new work area, and a running slide is retargeted — the declared
+        /// curves and durations (spec §2 / §4) are untouched, only the coordinates move.
+        /// </summary>
+        private void ReanchorAfterDisplayChange()
+        {
+            int previousRest = _restY;
+            ApplyLayout(remeasureText: false);
+            int delta = _restY - previousRest;
+
+            WindowMotion? motion = _motion;
+            if (motion is { MoveMs: > 0 })
+            {
+                // Entry: both ends belong to the rest position, so shift the whole path and keep
+                // the +24 DIP relationship. Exit/restore: only the end belongs to the rest
+                // position — the start stays the card's live position, so it does not jump.
+                if (motion.RestAnchored) motion.FromY += delta;
+                motion.ToY += delta;
+            }
+            else
+            {
+                // Not sliding (holding, or a degraded fade): put the card on the new rest rect
+                // now, so the next frame is not drawn at the old coordinates.
+                ApplyWindowY(_restY);
+            }
+
+            Trace($"re-anchored after display change: rest {previousRest} -> {_restY} px (Δ{delta}), " +
+                  $"card {_winW}x{_winH} px at x={_winX}" +
+                  (motion is { MoveMs: > 0 } ? $", slide retargeted to {motion.FromY} -> {motion.ToY} px" : string.Empty));
         }
 
         private void ApplyWindowY(int y)
@@ -447,15 +649,19 @@ namespace Predex.WinUI.Views
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
 
-        /// <summary>Re-applies the card rect once if the HWND is not where it was asked to be.</summary>
+        /// <summary>
+        /// Re-applies the card rect once if the HWND is not where it was asked to be. Checks the
+        /// whole rect, not just Y: after a resolution switch the horizontal centre can be wrong
+        /// too (the old code only compared the top edge, so an off-centre card was never fixed).
+        /// </summary>
         private void EnsurePlacement(int expectedY)
         {
             if (!GetWindowRect(_hwnd, out WinRect rect)) return;
             int width = rect.Right - rect.Left;
             int height = rect.Bottom - rect.Top;
-            if (width == _winW && height == _winH && rect.Top == expectedY) return;
-            Trace($"placement corrected: wanted {_winW}x{_winH} @ y={expectedY}, " +
-                  $"got {width}x{height} @ y={rect.Top}");
+            if (width == _winW && height == _winH && rect.Left == _winX && rect.Top == expectedY) return;
+            Trace($"placement corrected: wanted {_winW}x{_winH} @ ({_winX},{expectedY}), " +
+                  $"got {width}x{height} @ ({rect.Left},{rect.Top})");
             ApplyWindowY(expectedY);
         }
 
@@ -474,6 +680,10 @@ namespace Predex.WinUI.Views
         ///   Entering → keep the running entry, only swap the text + replay the icon animation;
         ///   Holding  → swap text, replay icon animation, reset the 3000 ms dwell timer;
         ///   Exiting  → abort the exit, restore to rest in 167 ms, then behave like Holding.
+        ///
+        /// The display is re-resolved first, on every path. The HWND outlives the display mode,
+        /// so the work area and DPI captured at the previous show are exactly the values a
+        /// resolution / refresh-rate / DPI switch invalidates.
         /// </summary>
         private void Present(byte mode, string title)
         {
@@ -482,23 +692,31 @@ namespace Predex.WinUI.Views
             SetContent(mode, title);
             MotionMode motion = MotionFor(mode);
 
+            bool displayChanged = RefreshDisplay();
+
+            if (_phase == Phase.Hidden)
+            {
+                ApplyLayout(remeasureText: true);
+                // Show invisible at alpha 0, force the first layout, then place: the window
+                // never appears at a stale position or size for even one frame.
+                ShowHostInvisible();
+                int startY = _restY + (full ? ScaleDip(EntrySlideDip) : 0);
+                ApplyWindowY(startY);
+                EnsurePlacement(startY);
+                ShowTopmost();
+                Trace($"show mode=0x{mode:X2} '{title}' animations={(full ? "full" : "degraded")} " +
+                      $"card={_cardWidthDip:0.#}x{ModeOsdPlacement.CardHeightDip:0} DIP at ({_winX},{_restY})");
+                BeginEntry(motion, full);
+                RaiseAccessibleAnnouncement(title);
+                return;
+            }
+
+            // Already on screen: a display change since the last show moves the rest position
+            // under the running card, so re-anchor before touching text/icon/timers.
+            if (displayChanged) ReanchorAfterDisplayChange();
+
             switch (_phase)
             {
-                case Phase.Hidden:
-                    SizeWindow(MeasureCardWidthDip());
-                    ComputePlacement();
-                    // Show invisible at alpha 0, force the first layout, then place: the window
-                    // never appears at a stale position or size for even one frame.
-                    ShowHostInvisible();
-                    int startY = _restY + (full ? ScaleDip(EntrySlideDip) : 0);
-                    ApplyWindowY(startY);
-                    EnsurePlacement(startY);
-                    ShowTopmost();
-                    Trace($"show mode=0x{mode:X2} '{title}' animations={(full ? "full" : "degraded")} " +
-                          $"card={(_winW * 96.0 / Dpi):0}x{CardHeightDip:0} DIP at ({_winX},{_restY})");
-                    BeginEntry(motion, full);
-                    break;
-
                 case Phase.Entering:
                     // Spec §3: no entry replay while the entry is still running.
                     Trace($"switch during entry mode=0x{mode:X2} '{title}' → text/icon only, entry not replayed");
@@ -560,6 +778,7 @@ namespace Predex.WinUI.Views
                 {
                     FromY = _restY + ScaleDip(EntrySlideDip),
                     ToY = _restY,
+                    RestAnchored = true,
                     MoveMs = EntrySlideDuration.TotalMilliseconds,
                     MoveX1 = EntryX1, MoveY1 = EntryY1, MoveX2 = EntryX2, MoveY2 = EntryY2,
                     FromAlpha = 0, ToAlpha = 1,

@@ -254,7 +254,10 @@ function Start-Shell([string[]]$extraArgs) {
     # (ShellUiState lives in %LOCALAPPDATA%\Predex\shell-ui.json, not in the output directory).
     $uiState = Join-Path $env:LOCALAPPDATA 'Predex\shell-ui.json'
     if (Test-Path $uiState) { Remove-Item $uiState -Force }
-    $launchArgs = @('--no-autohide', '--trace') + $extraArgs
+    # --update-no-auto: automatic updates are ON by default and would start a background check
+    # 45 s into the run, which can repaint the Update page between the navigation steps and would
+    # reach the real network. The IA screenshots need a deterministic, offline page.
+    $launchArgs = @('--no-autohide', '--trace', '--update-no-auto') + $extraArgs
     Write-Output ("   launch: {0} {1}" -f (Split-Path -Leaf $Exe), ($launchArgs -join ' '))
     $proc = Start-Process -FilePath $Exe -WorkingDirectory $work -ArgumentList $launchArgs -PassThru
     $win = Get-ShellWindow -processId $proc.Id

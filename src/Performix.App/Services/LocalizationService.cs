@@ -403,6 +403,53 @@ namespace PreySense.Frontend.Services
                 ["The update failed. Click Retry to try again."] =
                     new(StringComparer.Ordinal) { ["zh-CN"] = "更新失败。请点「重试」再试一次。" },
 
+                // ── Automatic updates (Update page switch + the bottom-right status window) ──
+                // The feature default is ON and the app may restart itself to install, so the
+                // switch carries one sentence of prose; everything else is a state word or a
+                // sentence the status window shows. English is the source string in the code and
+                // the XAML; these rows are the zh-CN half of "both languages".
+                ["Automatic updates"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "自动更新" },
+                ["Checks for a new version after startup, downloads it and installs it while you are not busy. Off means Performix never goes online for updates."] =
+                    new(StringComparer.Ordinal)
+                    {
+                        ["zh-CN"] = "启动后自动检查新版本，下载并在您空闲时安装。关闭后 Performix 不会为更新联网。",
+                    },
+                ["Checking for updates…"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "正在检查更新…" },
+                ["Current version {0}"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "当前版本 {0}" },
+                ["Update {0} found"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "发现新版本 {0}" },
+                ["Starting the download…"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "正在开始下载…" },
+                ["Update {0}"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "更新 {0}" },
+                ["Downloading update {0}"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "正在下载更新 {0}" },
+                ["Performix {0} is the newest version."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "Performix {0} 已是最新版本。" },
+                ["Update {0} is ready"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "更新 {0} 已就绪" },
+                ["It will be installed and Performix restarted once you are not busy."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "等您空闲时会自动安装并重启 Performix。" },
+                ["Restarting to install {0}"] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "即将重启安装 {0}" },
+                ["Performix closes and reopens in a few seconds."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "Performix 会在几秒后关闭并重新打开。" },
+                ["The update feed has no release yet. It will be checked again later."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "更新源还没有发布版本，稍后会再检查。" },
+                ["The update check failed. It will be retried later."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "检查更新失败，稍后会重试。" },
+                ["The download failed. It will be retried later."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "下载失败，稍后会重试。" },
+                ["The downloaded package did not pass verification, so it was discarded."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "下载的安装包未通过校验，已丢弃。" },
+                ["The update could not be installed. Open the Update page for details."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "更新安装未能启动，详情见更新页。" },
+                ["The update failed. It will be retried later."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "更新失败，稍后会重试。" },
+
                 // ── minVersion gate: the release cannot be applied over this build ────────
                 // The machine's CanDownload is false in this state; these are the words for the
                 // status line / block reason (the page owner wires them up).
@@ -433,7 +480,7 @@ namespace PreySense.Frontend.Services
                 ["Personalisation"] = new(StringComparer.Ordinal) { ["zh-CN"] = "个性化" },
                 ["Services"] = new(StringComparer.Ordinal) { ["zh-CN"] = "服务" },
 
-                // ── General: language catalogue + the two unimplemented switches ───────────
+                // ── General: language catalogue + the two window-behaviour switches ────────
                 ["Language"] = new(StringComparer.Ordinal) { ["zh-CN"] = "语言" },
                 ["The list stays open for new languages: adding one means adding one table."] =
                     new(StringComparer.Ordinal)
@@ -442,12 +489,13 @@ namespace PreySense.Frontend.Services
                     new(StringComparer.Ordinal)
                     { ["zh-CN"] = "尚无翻译表——列在这里是为了让后续 PR 补上它。" },
                 ["Always on Top"] = new(StringComparer.Ordinal) { ["zh-CN"] = "总在最前" },
-                // UX review item 1: "Not implemented: the tray panel hides when it loses focus"
-                // was developer wording. A disabled row still has to say why (UI-DESIGN-RULES
-                // §7.2 exception 3), so it says the user-facing reason and nothing else.
-                ["Not available in this version."] =
-                    new(StringComparer.Ordinal) { ["zh-CN"] = "此版本暂不支持。" },
+                ["Keeps the panel above other windows, and it stays open when you click another window."] =
+                    new(StringComparer.Ordinal)
+                    { ["zh-CN"] = "让面板始终显示在其他窗口之上，点到别的窗口时也不会收起。" },
                 ["Special Key Wake"] = new(StringComparer.Ordinal) { ["zh-CN"] = "特殊键唤醒" },
+                ["The Predator key opens the panel from any app. Off leaves the key without that action."] =
+                    new(StringComparer.Ordinal)
+                    { ["zh-CN"] = "按 Predator 键可在任意程序前面唤出面板。关闭后这个键不再做这件事。" },
                 ["Run on Startup"] = new(StringComparer.Ordinal) { ["zh-CN"] = "开机启动" },
                 // UX review item 13: the tooltip used to explain the elevated scheduled task.
                 // What the user gets, not how it is registered.
@@ -470,6 +518,15 @@ namespace PreySense.Frontend.Services
                     new(StringComparer.Ordinal)
                     { ["zh-CN"] = "展开面板里的各个栏。开关立即生效，并会被记住。" },
                 ["Status bar"] = new(StringComparer.Ordinal) { ["zh-CN"] = "状态条" },
+                // The four fields of the status bar (Personalisation → Interface). Names only —
+                // UI-DESIGN-RULES §7 — so there is nothing to translate but the name.
+                ["Temperature"] = new(StringComparer.Ordinal) { ["zh-CN"] = "温度" },
+                ["Usage"] = new(StringComparer.Ordinal) { ["zh-CN"] = "占用" },
+                ["Frequency"] = new(StringComparer.Ordinal) { ["zh-CN"] = "频率" },
+                ["Fan speed"] = new(StringComparer.Ordinal) { ["zh-CN"] = "风扇转速" },
+                // HelpText (screen readers only, §7.4): the row is no longer fan-only.
+                ["The read-only CPU / GPU telemetry row."] =
+                    new(StringComparer.Ordinal) { ["zh-CN"] = "只读的 CPU / GPU 遥测行。" },
                 ["GPU bar"] = new(StringComparer.Ordinal) { ["zh-CN"] = "GPU 栏" },
                 ["Refresh rate bar"] = new(StringComparer.Ordinal) { ["zh-CN"] = "刷新率栏" },
                 ["Widget bar"] = new(StringComparer.Ordinal) { ["zh-CN"] = "小组件栏" },

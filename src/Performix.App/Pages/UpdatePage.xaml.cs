@@ -53,6 +53,13 @@ namespace Predex.WinUI.Pages
         private readonly Microsoft.UI.Dispatching.DispatcherQueue? _queue;
         private string? _loggedFailure;
 
+        /// <summary>
+        /// True while <see cref="RenderUpdateState"/> writes the switch: the Toggled event fires
+        /// for a programmatic IsOn change too, and a render must never write the preference back
+        /// (that would turn a read into a write on every session change).
+        /// </summary>
+        private bool _renderingAutoUpdate;
+
         public UpdatePage()
         {
             InitializeComponent();
@@ -152,9 +159,42 @@ namespace Predex.WinUI.Pages
             }
         }
 
-        /// <summary>Failure-only shortcut: the folder that holds update-check.log / update.log.</summary>
-        private void OpenUpdateLogs_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// The "Automatic updates" switch. Writing it persists to preysense.json; turning it off
+        /// also stops the running cycle (the runner's gate re-reads the preference and the status
+        /// card is dismissed), so "off" really means "offline from this moment".
+        /// </summary>
+        private void AutoUpdate_Toggled(object sender, RoutedEventArgs e)
         {
+            if (_renderingAutoUpdate) return;
+
+            bool wanted = ChkAutoUpdate.IsOn;
+            bool stored = UpdatePreferences.SetAutoUpdate(wanted);
+
+            // A failed write leaves the old answer: show what the file says, not the click.
+            if (stored != wanted) SetAutoUpdateSwitch(stored);
+
+            if (!stored)
+            {
+                UpdateStatusPresenter.Dismiss();
+                ShellLog.Write("update", "automatic updates turned off: the update path is offline again");
+            }
+            else
+            {
+                ShellLog.Write("update", "automatic updates turned on: the next check follows the schedule");
+            }
+        }
+
+        /// <summary>Writes the switch without re-entering the handler.</summary>
+        private void SetAutoUpdateSwitch(bool on)
+        {
+            _renderingAutoUpdate = true;
+            try { ChkAutoUpdate.IsOn = on; }
+            finally { _renderingAutoUpdate = false; }
+        }
+
+        /// <summary>Failure-only shortcut: the folder that holds update-check.log / update.log.</summary>
+        private void OpenUpdateLogs_Click(object sender, RoutedEventArgs e)        {
             try
             {
                 Directory.CreateDirectory(UpdateLogFolder);
@@ -191,6 +231,9 @@ namespace Predex.WinUI.Pages
 
             TxtUpdateVersion.Text = machine.CurrentVersionText;
             TxtUpdateChannel.Text = machine.Channel;
+
+            // The stored answer, never the in-memory one: the switch shows the file.
+            SetAutoUpdateSwitch(UpdatePreferences.PersistedAutoUpdate);
 
             // UX review item 9: a dash in the "Update source" / "publish time" rows could mean
             // "not checked", "no data" or "not supported". Before the first check both rows say

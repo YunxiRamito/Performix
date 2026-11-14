@@ -180,6 +180,9 @@ namespace Predex.WinUI
                                    !string.IsNullOrWhiteSpace(updateOptions.FeedOverride);
             UpdateSession.Initialize(updateOptions, suppressInstall);
 
+            // Verification opt-out (--update-no-auto): read before anything can start the loop.
+            UpdatePreferences.ApplyCommandLine(commandLine);
+
             NoAutoHide = commandLine.Any(a => a.Equals("--no-autohide", StringComparison.OrdinalIgnoreCase));
             if (commandLine.Any(a => a.Equals("--trace", StringComparison.OrdinalIgnoreCase)))
                 ShellLog.Enable();
@@ -242,6 +245,19 @@ namespace Predex.WinUI
             }
 
             StartUpdateAutoRun(UpdateCli.AutoMode(commandLine));
+
+            // ── Automatic updates (on by default; the Update page has the switch) ────
+            // The status card is attached before the loop so the very first "checking" state has
+            // somewhere to go. A click on the card opens the Update page: that is the detail view
+            // (the card itself is the quiet status surface, never a modal dialog).
+            UpdateStatusPresenter.Attach(_shell.DispatcherQueue, () =>
+            {
+                Shell.ShellWindow? shell = CurrentShell;
+                if (shell is null) return;
+                shell.NavigateTo("Update");
+                shell.ShowAndActivate();
+            });
+            UpdateAutoRunner.Start(commandLine);
         }
 
         /// <summary>
@@ -600,6 +616,11 @@ namespace Predex.WinUI
         internal static void RequestExit()
         {
             _exiting = true;
+            // Stop the automatic update loop before the shell goes away: a check or download
+            // that is still unwinding must not outlive the process' UI (and the status window
+            // must not be left behind as a stray HWND).
+            try { UpdateAutoRunner.Stop(); } catch { }
+            try { Views.UpdateInfoWindow.Shutdown(); } catch { }
             _acerHotkeys?.Dispose();
             _acerHotkeys = null;
             try { _showEvent?.Set(); } catch { }

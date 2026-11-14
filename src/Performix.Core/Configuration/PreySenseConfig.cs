@@ -81,6 +81,34 @@ namespace PreySense.Core.Configuration
 
         /// <summary>Whether hardware tuning controls are enabled.</summary>
         public bool HardwareTuningEnabled { get; set; } = false;
+
+        /// <summary>
+        /// The "Automatic updates" switch (Update page). On by default: Performix checks for a
+        /// new build after startup, downloads it, verifies size + SHA-256 and then installs it —
+        /// but only once the user has been idle and nothing else is running, and after telling
+        /// them it is about to restart. Off means the update path stays completely offline: no
+        /// check, no download, nothing. A plain <c>bool</c> (not <c>bool?</c> like
+        /// <see cref="RunOnStartup"/>) on purpose: "never answered" and "answered on" are the
+        /// same behaviour, so there is no third state to migrate.
+        /// </summary>
+        public bool AutoUpdate { get; set; } = true;
+
+        /// <summary>
+        /// The "Always on Top" switch (Settings → General): keep the shell panel above other
+        /// windows. While it is on, losing focus no longer hides the panel — the tray-panel
+        /// auto-hide is exactly what made "topmost" meaningless before, so the two are one
+        /// setting, not two. Window behaviour, not appearance, which is why it lives here and
+        /// not in %LOCALAPPDATA%\Predex\appearance.json.
+        /// </summary>
+        public bool AlwaysOnTop { get; set; } = false;
+
+        /// <summary>
+        /// The "Special Key Wake" switch (Settings → General): a vendor hotkey press (the
+        /// Predator logo key, scan code E0 75) summons the panel while another app is in front.
+        /// True is the behaviour the shell had before the switch existed, so an existing
+        /// configuration file keeps working unchanged.
+        /// </summary>
+        public bool SpecialKeyWake { get; set; } = true;
     }
 
     public sealed class DisplayConfig
