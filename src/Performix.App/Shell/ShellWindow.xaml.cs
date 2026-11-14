@@ -341,6 +341,11 @@ namespace Predex.WinUI.Shell
 
         // ── Window chrome (DWM + Win32) ──────────────────────────────────────────
         [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+        // 64-bit-safe extended style read: GetWindowLong truncates to int, and the bits this
+        // shell cares about (WS_EX_TOPMOST = 0x8) survive that, but the *whole* style value is
+        // logged for diagnostics and a truncated read there is misleading.
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+        private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
         [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
         [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hWnd, uint attr, ref int attrValue, int size);
         [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
@@ -1176,19 +1181,49 @@ namespace Predex.WinUI.Shell
             }
 
             _alwaysOnTop = on;
-            bool readback = IsTopmostNow(hwnd);
-            if (wasOn != on || !presenterApplied || !zOrderApplied || readback != on)
+
+            // No synchronous read-back here on purpose. Measured on the live HWND: right after
+            // SetWindowPos the style bit is still clear (WinUI applies its own z-order once the
+            // presenter property has settled), and it is set by the time anything else looks.
+            // Verifying inline therefore produced a false "readback=False" on every call while
+            // the window was, a moment later, genuinely topmost. Verify one dispatcher beat
+            // later instead, and only log when the bit is still wrong then.
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (_isExplicitExit) return;
+                    IntPtr handle = Hwnd;
+                    bool settled = IsTopmostNow(handle);
+                    if (settled != on)
+                    {
+                        // Second chance: re-assert and check once more before reporting a failure.
+                        SetWindowPos(handle, on ? HwndTopmost : HwndNoTopmost, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                        settled = IsTopmostNow(handle);
+                    }
+                    ShellLog.Write("window",
+                        $"always on top = {on} settled={settled} hwnd=0x{handle.ToInt64():X} " +
+                        $"(presenter={presenterApplied} setwindowpos={zOrderApplied}); " +
+                        $"auto-hide on focus loss = {WindowBehaviorPolicy.AutoHideAllowed(on, Predex.WinUI.App.NoAutoHide)}");
+                }
+                catch (Exception ex)
+                {
+                    ShellLog.Write("window", $"always on top verify failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            });
+
+            if (wasOn != on)
             {
                 ShellLog.Write("window",
-                    $"always on top = {on} hwnd=0x{hwnd.ToInt64():X} readback={readback} " +
-                    $"(presenter={presenterApplied} setwindowpos={zOrderApplied}); " +
-                    $"auto-hide on focus loss = {WindowBehaviorPolicy.AutoHideAllowed(on, Predex.WinUI.App.NoAutoHide)}");
+                    $"always on top requested = {on} hwnd=0x{hwnd.ToInt64():X} " +
+                    $"(presenter={presenterApplied} setwindowpos={zOrderApplied})");
             }
         }
 
         /// <summary>Reads WS_EX_TOPMOST back off the HWND (diagnostics / write-then-verify).</summary>
         private static bool IsTopmostNow(IntPtr hwnd)
-            => (GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+            => (GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64() & WS_EX_TOPMOST) != 0;
 
         /// <summary>
         /// Applies "Special Key Wake" to the live window. Off means a Predator-key press no
